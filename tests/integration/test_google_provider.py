@@ -20,6 +20,8 @@ from google_health_agent.providers.google_health import (
 )
 
 DATA_URL = "https://health.googleapis.com/v4/users/me/dataTypes/steps/dataPoints"
+SLEEP_URL = "https://health.googleapis.com/v4/users/me/dataTypes/sleep/dataPoints"
+ACTIVE_MINUTES_URL = "https://health.googleapis.com/v4/users/me/dataTypes/active-minutes/dataPoints"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
@@ -32,6 +34,9 @@ class MemoryTokenStore(TokenStore):
 
     def save(self, tokens: TokenSet) -> None:
         self.token = tokens
+
+    def delete(self) -> None:
+        self.token = None
 
 
 def _token() -> TokenSet:
@@ -92,6 +97,46 @@ async def test_pagination_and_normalization() -> None:
     assert points[0].civil_date == date(2026, 1, 1)
     assert points[0].utc_offset_minutes == 480
     assert points[0].synthetic is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_current_page_sizes_filters_and_query_window_limits() -> None:
+    sleep_route = respx.get(SLEEP_URL).mock(
+        return_value=httpx.Response(200, json={"dataPoints": []})
+    )
+    active_route = respx.get(ACTIVE_MINUTES_URL).mock(
+        return_value=httpx.Response(200, json={"dataPoints": []})
+    )
+    async with httpx.AsyncClient() as client:
+        sleep_provider = GoogleHealthProvider(
+            MemoryTokenStore(_token()),
+            _oauth(client),
+            client,
+            data_types=("sleep",),
+        )
+        await sleep_provider.fetch(date(2026, 1, 1), date(2026, 1, 1))
+        active_provider = GoogleHealthProvider(
+            MemoryTokenStore(_token()),
+            _oauth(client),
+            client,
+            data_types=("active-minutes",),
+        )
+        await active_provider.fetch(date(2026, 1, 1), date(2026, 1, 30))
+
+    assert sleep_route.call_count == 1
+    assert sleep_route.calls[0].request.url.params["pageSize"] == "25"
+    assert (
+        sleep_route.calls[0].request.url.params["filter"]
+        == 'sleep.interval.civil_end_time >= "2026-01-01" '
+        'AND sleep.interval.civil_end_time < "2026-01-02"'
+    )
+    assert active_route.call_count == 3
+    filters = [call.request.url.params["filter"] for call in active_route.calls]
+    assert all(item.startswith("active_minutes.interval.civil_start_time") for item in filters)
+    assert '"2026-01-01"' in filters[0] and '"2026-01-15"' in filters[0]
+    assert '"2026-01-15"' in filters[1] and '"2026-01-29"' in filters[1]
+    assert '"2026-01-29"' in filters[2] and '"2026-01-31"' in filters[2]
 
 
 @pytest.mark.asyncio

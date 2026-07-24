@@ -1,11 +1,13 @@
 from collections.abc import Callable
 from datetime import date, timedelta
+from secrets import compare_digest
 from typing import Any
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
+from sqlalchemy.engine import make_url
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
@@ -14,6 +16,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from google_health_agent.config import Settings
 from google_health_agent.errors import HealthAgentError
+from google_health_agent.observability import SafeRequestLoggingMiddleware, configure_safe_logging
 from google_health_agent.service import (
     ACTIVITY_METRICS,
     RECOVERY_METRICS,
@@ -152,15 +155,13 @@ class BearerAuthMiddleware:
     def __init__(self, app: ASGIApp, settings: Settings) -> None:
         self.app = app
         self.enabled = settings.mcp_auth_enabled
-        self.token = (
-            settings.health_mcp_token.get_secret_value() if settings.health_mcp_token else None
-        )
+        self.tokens = tuple(f"Bearer {token}".encode() for token in settings.mcp_token_map.values())
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if self.enabled and scope["type"] == "http" and scope["path"].startswith("/mcp"):
             headers = dict(scope.get("headers", []))
-            expected = f"Bearer {self.token}".encode()
-            if headers.get(b"authorization") != expected:
+            supplied = headers.get(b"authorization", b"")
+            if not any(compare_digest(supplied, expected) for expected in self.tokens):
                 response = JSONResponse({"error": "Unauthorized"}, status_code=401)
                 await response(scope, receive, send)
                 return
@@ -184,6 +185,8 @@ def create_app(settings: Settings, repository: HealthRepository | None = None) -
         return JSONResponse({"status": "ok", "service": "google-health-agent"})
 
     async def readyz(_: Request) -> Response:
+        if not repository.ready():
+            return JSONResponse({"status": "not ready", "database": "unavailable"}, status_code=503)
         return JSONResponse({"status": "ready", "database": "ok"})
 
     async def safe_error(_: Request, exc: Exception) -> Response:
@@ -244,10 +247,24 @@ def create_app(settings: Settings, repository: HealthRepository | None = None) -
         exception_handlers={HealthAgentError: safe_error},
     )
     app.add_middleware(BearerAuthMiddleware, settings=settings)
+    app.add_middleware(SafeRequestLoggingMiddleware)
     return app
 
 
 def run_server(settings: Settings) -> None:
+    secret_values = list(settings.mcp_token_map.values())
+    for value in (
+        settings.google_client_id,
+        settings.google_client_secret,
+        settings.google_token_encryption_key,
+        settings.smtp_password,
+    ):
+        if value:
+            secret_values.append(value.get_secret_value())
+    database_password = make_url(settings.database_url).password
+    if database_password:
+        secret_values.append(database_password)
+    configure_safe_logging(secret_values)
     uvicorn.run(
         create_app(settings),
         host=settings.mcp_host,

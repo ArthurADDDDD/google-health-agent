@@ -58,3 +58,31 @@ def test_encrypted_token_store_never_writes_plaintext(tmp_path) -> None:
     assert loaded
     assert loaded.access_token.get_secret_value() == "access-test-value"
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_encryption_key_rotation_and_local_revocation(tmp_path) -> None:
+    path = tmp_path / "token.enc"
+    key_a = Fernet.generate_key().decode()
+    key_b = Fernet.generate_key().decode()
+    store = EncryptedFileTokenStore(path, key_a)
+    store.save(
+        TokenSet(
+            access_token="fake-rotating-access",
+            refresh_token="fake-rotating-refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    ciphertext_a = path.read_bytes()
+    store.rotate_key(key_b)
+    ciphertext_b = path.read_bytes()
+    assert ciphertext_b != ciphertext_a
+    with pytest.raises(AuthenticationRequired):
+        EncryptedFileTokenStore(path, key_a).load()
+    loaded = EncryptedFileTokenStore(path, key_b).load()
+    assert loaded
+    assert loaded.refresh_token
+    assert loaded.refresh_token.get_secret_value() == "fake-rotating-refresh"
+
+    store.delete()
+    assert store.load() is None
+    assert not path.exists()

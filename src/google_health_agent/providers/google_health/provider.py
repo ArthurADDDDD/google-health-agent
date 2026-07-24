@@ -24,44 +24,64 @@ from google_health_agent.providers.google_health.oauth import (
 
 GOOGLE_HEALTH_BASE_URL = "https://health.googleapis.com/v4"
 
-DATA_TYPES: dict[str, tuple[str, str, str]] = {
-    "steps": ("steps", "count", "count"),
-    "sleep": ("sleep", "summary.minutesAsleep", "min"),
-    "active-zone-minutes": ("activeZoneMinutes", "activeZoneMinutes", "min"),
-    "active-minutes": ("activeMinutes", "activeMinutesByActivityLevel", "min"),
-    "sedentary-period": ("sedentaryPeriod", "intervalDurationMinutes", "min"),
-    "exercise": ("exercise", "intervalDurationMinutes", "min"),
+DATA_TYPES: dict[str, tuple[str, str, str, str]] = {
+    "steps": ("steps", "steps", "count", "count"),
+    "sleep": ("sleep", "sleep", "summary.minutesAsleep", "min"),
+    "active-zone-minutes": (
+        "activeZoneMinutes",
+        "active_zone_minutes",
+        "activeZoneMinutes",
+        "min",
+    ),
+    "active-minutes": (
+        "activeMinutes",
+        "active_minutes",
+        "activeMinutesByActivityLevel",
+        "min",
+    ),
+    "sedentary-period": (
+        "sedentaryPeriod",
+        "sedentary_period",
+        "intervalDurationMinutes",
+        "min",
+    ),
+    "exercise": ("exercise", "exercise", "intervalDurationMinutes", "min"),
     "daily-heart-rate-variability": (
         "dailyHeartRateVariability",
+        "daily_heart_rate_variability",
         "averageHeartRateVariabilityMilliseconds",
         "ms",
     ),
     "daily-resting-heart-rate": (
         "dailyRestingHeartRate",
+        "daily_resting_heart_rate",
         "beatsPerMinute",
         "bpm",
     ),
     "daily-oxygen-saturation": (
         "dailyOxygenSaturation",
+        "daily_oxygen_saturation",
         "averagePercentage",
         "percent",
     ),
     "respiratory-rate-sleep-summary": (
         "respiratoryRateSleepSummary",
+        "respiratory_rate_sleep_summary",
         "fullSleepStats.breathsPerMinute",
         "breaths/min",
     ),
     "daily-sleep-temperature-derivations": (
         "dailySleepTemperatureDerivations",
+        "daily_sleep_temperature_derivations",
         "nightlyTemperatureCelsius",
         "celsius",
     ),
-    "weight": ("weight", "weightGrams", "kg"),
+    "weight": ("weight", "weight", "weightGrams", "kg"),
 }
 DOMAIN_METRICS = {
     "steps": "steps",
     "sleep": "sleep_minutes",
-    "active-zone-minutes": "active_minutes",
+    "active-zone-minutes": "active_zone_minutes",
     "active-minutes": "active_minutes",
     "sedentary-period": "sedentary_minutes",
     "exercise": "exercise_minutes",
@@ -95,7 +115,8 @@ class GoogleHealthProvider(HealthProvider):
         token = await self._valid_token()
         points: list[HealthDataPoint] = []
         for data_type in self.data_types:
-            points.extend(await self._fetch_type(data_type, start_date, end_date, token))
+            for window_start, window_end in self._windows(data_type, start_date, end_date):
+                points.extend(await self._fetch_type(data_type, window_start, window_end, token))
         return points
 
     async def _valid_token(self) -> TokenSet:
@@ -121,7 +142,7 @@ class GoogleHealthProvider(HealthProvider):
         refreshed = False
         while True:
             params = {
-                "pageSize": "10000",
+                "pageSize": "25" if data_type in {"exercise", "sleep"} else "10000",
                 "filter": self._filter(data_type, start_date, end_date),
             }
             if page_token:
@@ -192,7 +213,8 @@ class GoogleHealthProvider(HealthProvider):
     @staticmethod
     def _filter(data_type: str, start_date: date, end_date: date) -> str:
         exclusive_end = end_date + timedelta(days=1)
-        field = f"{DATA_TYPES[data_type][0]}.date"
+        filter_name = DATA_TYPES[data_type][1]
+        field = f"{filter_name}.date"
         if data_type in {
             "steps",
             "active-zone-minutes",
@@ -200,16 +222,27 @@ class GoogleHealthProvider(HealthProvider):
             "sedentary-period",
             "exercise",
         }:
-            field = f"{DATA_TYPES[data_type][0]}.interval.civil_start_time"
+            field = f"{filter_name}.interval.civil_start_time"
         elif data_type == "sleep":
             field = "sleep.interval.civil_end_time"
         elif data_type in {"weight", "respiratory-rate-sleep-summary"}:
-            field = f"{DATA_TYPES[data_type][0]}.sample_time.civil_time"
+            field = f"{filter_name}.sample_time.civil_time"
         return f'{field} >= "{start_date.isoformat()}" AND {field} < "{exclusive_end.isoformat()}"'
 
     @staticmethod
+    def _windows(data_type: str, start_date: date, end_date: date) -> list[tuple[date, date]]:
+        maximum_days = 14 if data_type == "active-minutes" else 90
+        windows: list[tuple[date, date]] = []
+        current = start_date
+        while current <= end_date:
+            window_end = min(end_date, current + timedelta(days=maximum_days - 1))
+            windows.append((current, window_end))
+            current = window_end + timedelta(days=1)
+        return windows
+
+    @staticmethod
     def _normalize(data_type: str, raw: dict[str, Any]) -> HealthDataPoint:
-        field, value_field, unit = DATA_TYPES[data_type]
+        field, _, value_field, unit = DATA_TYPES[data_type]
         body = raw[field]
         start_time, end_time, civil_date, offset = _observation_time(body)
         value = _metric_value(data_type, body, value_field, start_time, end_time)

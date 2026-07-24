@@ -3,6 +3,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from google_health_agent.domain import DataSource, HealthDataPoint
@@ -66,6 +67,14 @@ class HealthRepository:
     def count(self) -> int:
         with Session(self.engine) as session:
             return int(session.scalar(select(func.count()).select_from(DataPointRow)) or 0)
+
+    def ready(self) -> bool:
+        try:
+            with self.engine.connect() as connection:
+                connection.execute(select(1))
+            return True
+        except SQLAlchemyError:
+            return False
 
     @staticmethod
     def _to_row(point: HealthDataPoint) -> dict[str, object]:

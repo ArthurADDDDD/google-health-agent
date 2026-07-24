@@ -41,3 +41,31 @@ def test_nonlocal_mcp_requires_auth_and_transport_allowlists() -> None:
         mcp_allowed_origins="http://localhost:*",
     )
     assert settings.allowed_host_patterns == ["localhost:*", "127.0.0.1:*"]
+
+
+def test_production_mcp_requires_exact_allowlists_and_distinct_client_tokens() -> None:
+    with pytest.raises(ConfigurationError, match="exact"):
+        Settings(
+            app_env="production",
+            mcp_host="0.0.0.0",
+            mcp_auth_enabled=True,
+            health_mcp_token="synthetic-only-token",
+            mcp_allowed_hosts="*",
+            mcp_allowed_origins="*",
+        )
+    settings = Settings(
+        app_env="production",
+        mcp_host="0.0.0.0",
+        mcp_auth_enabled=True,
+        health_mcp_tokens=('{"claude":"synthetic-claude-token","codex":"synthetic-codex-token"}'),
+        mcp_allowed_hosts="health.example.test",
+        mcp_allowed_origins="https://health.example.test",
+    )
+    assert set(settings.mcp_token_map) == {"claude", "codex"}
+    assert settings.mcp_token_map["claude"] != settings.mcp_token_map["codex"]
+
+    with pytest.raises(ConfigurationError, match="distinct"):
+        Settings(
+            mcp_auth_enabled=True,
+            health_mcp_tokens='{"claude":"same","codex":"same"}',
+        )

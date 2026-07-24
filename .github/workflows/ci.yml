@@ -70,8 +70,8 @@ jobs:
             --env MCP_PORT=8000 \
             --env MCP_AUTH_ENABLED=true \
             --env "HEALTH_MCP_TOKEN=${token}" \
-            --env 'MCP_ALLOWED_HOSTS=127.0.0.1:*,localhost:*' \
-            --env 'MCP_ALLOWED_ORIGINS=http://127.0.0.1:*,http://localhost:*' \
+            --env 'MCP_ALLOWED_HOSTS=127.0.0.1:18000,localhost:18000' \
+            --env 'MCP_ALLOWED_ORIGINS=http://127.0.0.1:18000,http://localhost:18000' \
             --volume google-health-agent-ci-data:/app/data \
             google-health-agent:ci \
             sh -c 'healthctl demo && healthctl serve'

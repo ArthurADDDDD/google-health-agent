@@ -32,6 +32,7 @@ RECOVERY_METRICS = (
 ACTIVITY_METRICS = (
     "steps",
     "active_minutes",
+    "active_zone_minutes",
     "sedentary_minutes",
     "exercise_minutes",
 )
@@ -43,6 +44,7 @@ ADDITIVE_METRICS = {
     "awake_minutes",
     "steps",
     "active_minutes",
+    "active_zone_minutes",
     "sedentary_minutes",
     "exercise_minutes",
 }

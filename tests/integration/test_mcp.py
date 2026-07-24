@@ -152,6 +152,72 @@ async def test_bearer_authentication(tmp_path) -> None:
         assert accepted.status_code != 401
 
 
+@pytest.mark.asyncio
+async def test_independent_client_tokens_and_rotation(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'rotation.sqlite'}"
+    repository = HealthRepository(database_url)
+    repository.initialize()
+    token_a = "synthetic-claude-token-a"
+    token_b = "synthetic-codex-token-b"
+    settings = Settings(
+        database_url=database_url,
+        mcp_auth_enabled=True,
+        health_mcp_tokens=f'{{"claude":"{token_a}","codex":"{token_b}"}}',
+    )
+    app = create_app(settings, repository)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://127.0.0.1:8000",
+        ) as client,
+    ):
+        for token in (token_a, token_b):
+            response = await client.post(
+                "/mcp",
+                headers={"Authorization": f"Bearer {token}"},
+                json={},
+            )
+            assert response.status_code != 401
+        assert (
+            await client.post(
+                "/mcp",
+                headers={"Authorization": "Bearer synthetic-wrong-token"},
+                json={},
+            )
+        ).status_code == 401
+
+    rotated = create_app(
+        Settings(
+            database_url=database_url,
+            mcp_auth_enabled=True,
+            health_mcp_tokens=(f'{{"claude":"synthetic-claude-token-new","codex":"{token_b}"}}'),
+        ),
+        repository,
+    )
+    async with (
+        rotated.router.lifespan_context(rotated),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=rotated),
+            base_url="http://127.0.0.1:8000",
+        ) as client,
+    ):
+        assert (
+            await client.post("/mcp", headers={"Authorization": f"Bearer {token_a}"}, json={})
+        ).status_code == 401
+        assert (
+            await client.post("/mcp", headers={"Authorization": f"Bearer {token_b}"}, json={})
+        ).status_code != 401
+        assert (
+            await client.post(
+                "/mcp",
+                headers={"Authorization": "Bearer synthetic-claude-token-new"},
+                json={},
+            )
+        ).status_code != 401
+    assert repository.count() == 0
+
+
 def test_private_provider_is_never_labeled_synthetic(tmp_path) -> None:
     repository = HealthRepository(f"sqlite:///{tmp_path / 'private-label.sqlite'}")
     repository.initialize()
@@ -175,3 +241,57 @@ def test_nonlocal_server_uses_explicit_transport_allowlists(tmp_path) -> None:
     assert transport.enable_dns_rebinding_protection is True
     assert transport.allowed_hosts == ["health.example.test"]
     assert transport.allowed_origins == ["https://health.example.test"]
+
+
+@pytest.mark.asyncio
+async def test_host_and_origin_allowlists_are_enforced(tmp_path) -> None:
+    settings = Settings(
+        app_env="production",
+        database_url=f"sqlite:///{tmp_path / 'allowlist.sqlite'}",
+        mcp_host="0.0.0.0",
+        mcp_auth_enabled=True,
+        health_mcp_token="synthetic-allowlist-token",
+        mcp_allowed_hosts="health.example.test",
+        mcp_allowed_origins="https://health.example.test",
+    )
+    app = create_app(settings)
+    headers = {
+        "Authorization": "Bearer synthetic-allowlist-token",
+        "Origin": "https://health.example.test",
+    }
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://health.example.test",
+        ) as allowed_client,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://invalid.example.test",
+        ) as invalid_host_client,
+    ):
+        allowed = await allowed_client.post("/mcp", headers=headers, json={})
+        assert allowed.status_code not in {401, 403, 421}
+        invalid_origin = await allowed_client.post(
+            "/mcp",
+            headers={**headers, "Origin": "https://invalid.example.test"},
+            json={},
+        )
+        assert invalid_origin.status_code == 403
+        invalid_host = await invalid_host_client.post("/mcp", headers=headers, json={})
+        assert invalid_host.status_code == 421
+
+
+@pytest.mark.asyncio
+async def test_readyz_reports_database_failure_without_configuration(tmp_path, monkeypatch) -> None:
+    repository = HealthRepository(f"sqlite:///{tmp_path / 'ready.sqlite'}")
+    repository.initialize()
+    monkeypatch.setattr(repository, "ready", lambda: False)
+    app = create_app(Settings(database_url=f"sqlite:///{tmp_path / 'ready.sqlite'}"), repository)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://127.0.0.1:8000",
+    ) as client:
+        response = await client.get("/readyz")
+    assert response.status_code == 503
+    assert response.json() == {"status": "not ready", "database": "unavailable"}

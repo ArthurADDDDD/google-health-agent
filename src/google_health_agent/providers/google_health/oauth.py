@@ -41,6 +41,10 @@ class TokenStore(ABC):
     def save(self, tokens: TokenSet) -> None:
         """Encrypt and persist tokens."""
 
+    @abstractmethod
+    def delete(self) -> None:
+        """Delete locally stored authorization during revocation."""
+
 
 class EncryptedFileTokenStore(TokenStore):
     def __init__(self, path: Path, encryption_key: SecretStr | str) -> None:
@@ -77,8 +81,23 @@ class EncryptedFileTokenStore(TokenStore):
                 "token_type": tokens.token_type,
             }
         ).encode()
-        self.path.write_bytes(self.fernet.encrypt(plaintext))
-        self.path.chmod(0o600)
+        temporary = self.path.with_suffix(f"{self.path.suffix}.tmp")
+        try:
+            temporary.write_bytes(self.fernet.encrypt(plaintext))
+            temporary.chmod(0o600)
+            temporary.replace(self.path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def delete(self) -> None:
+        self.path.unlink(missing_ok=True)
+
+    def rotate_key(self, encryption_key: SecretStr | str) -> None:
+        tokens = self.load()
+        replacement = EncryptedFileTokenStore(self.path, encryption_key)
+        if tokens:
+            replacement.save(tokens)
+        self.fernet = replacement.fernet
 
 
 class OAuthStateStore:
