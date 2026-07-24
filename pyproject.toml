@@ -43,6 +43,9 @@ packages = ["src/google_health_agent"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+  "postgres: requires an isolated PostgreSQL test database",
+]
 
 [tool.ruff]
 target-version = "py312"

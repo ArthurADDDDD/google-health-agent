@@ -38,3 +38,127 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - name: Build production image
+        run: docker build --tag google-health-agent:ci .
+      - name: Verify non-root image
+        run: |
+          image_user="$(docker image inspect google-health-agent:ci --format '{{.Config.User}}')"
+          test -n "${image_user}"
+          test "${image_user}" != "0"
+          test "${image_user}" != "root"
+      - name: Start synthetic production-style container
+        run: |
+          token="$(openssl rand -hex 32)"
+          echo "MCP_SMOKE_TOKEN=${token}" >> "${GITHUB_ENV}"
+          docker volume create google-health-agent-ci-data
+          docker run --detach --name google-health-agent-ci \
+            --publish 127.0.0.1:18000:8000 \
+            --env APP_ENV=production \
+            --env HEALTH_PROVIDER=synthetic \
+            --env DATABASE_URL=sqlite:////app/data/production-style.sqlite \
+            --env MCP_HOST=0.0.0.0 \
+            --env MCP_PORT=8000 \
+            --env MCP_AUTH_ENABLED=true \
+            --env "HEALTH_MCP_TOKEN=${token}" \
+            --env 'MCP_ALLOWED_HOSTS=127.0.0.1:*,localhost:*' \
+            --env 'MCP_ALLOWED_ORIGINS=http://127.0.0.1:*,http://localhost:*' \
+            --volume google-health-agent-ci-data:/app/data \
+            google-health-agent:ci \
+            sh -c 'healthctl demo && healthctl serve'
+      - name: Verify probes, authentication, MCP, and restart
+        env:
+          MCP_SMOKE_URL: http://127.0.0.1:18000/mcp
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18000/healthz >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18000/healthz
+          curl --fail --silent http://127.0.0.1:18000/readyz
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --request POST http://127.0.0.1:18000/mcp)" = "401"
+          uv run python scripts/mcp_smoke.py
+          docker restart google-health-agent-ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18000/readyz >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          uv run python scripts/mcp_smoke.py
+      - name: Verify secret-safe container logs
+        run: |
+          docker logs google-health-agent-ci > container.log 2>&1
+          ! grep --fixed-strings "${MCP_SMOKE_TOKEN}" container.log
+          ! grep --fixed-strings '"summaries"' container.log
+          ! grep --fixed-strings '"access_token"' container.log
+      - name: Stop synthetic container
+        if: always()
+        run: |
+          docker rm --force google-health-agent-ci 2>/dev/null || true
+          docker volume rm google-health-agent-ci-data 2>/dev/null || true
+          rm -f container.log
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-admin-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - run: uv sync --locked --all-extras
+      - name: Create least-privilege application role and database
+        env:
+          PGADMIN: postgresql://postgres:synthetic-admin-password@127.0.0.1:5432/postgres
+        run: |
+          psql "${PGADMIN}" --set ON_ERROR_STOP=1 --command \
+            "CREATE ROLE google_health_agent_test LOGIN PASSWORD 'synthetic-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"
+          createdb --maintenance-db="${PGADMIN}" \
+            --owner=google_health_agent_test google_health_agent_test
+      - name: Verify migrations, storage, analytics, and MCP
+        env:
+          POSTGRES_TEST_URL: postgresql+psycopg://google_health_agent_test:synthetic-app-password@127.0.0.1:5432/google_health_agent_test
+        run: uv run pytest -q tests/integration/test_postgres.py -k migration
+      - name: Verify PostgreSQL backup and restore
+        env:
+          POSTGRES_ADMIN_DSN: postgresql://postgres:synthetic-admin-password@127.0.0.1:5432/postgres
+          POSTGRES_SOURCE_DSN: postgresql://google_health_agent_test:synthetic-app-password@127.0.0.1:5432/google_health_agent_test
+          POSTGRES_RESTORE_DSN: postgresql://google_health_agent_test:synthetic-app-password@127.0.0.1:5432/google_health_agent_restore
+          POSTGRES_RESTORE_DB: google_health_agent_restore
+          POSTGRES_APP_ROLE: google_health_agent_test
+        run: sh scripts/postgres_backup_restore_test.sh
+      - name: Validate analytics and MCP against restored database
+        env:
+          POSTGRES_TEST_URL: postgresql+psycopg://google_health_agent_test:synthetic-app-password@127.0.0.1:5432/google_health_agent_test
+          POSTGRES_RESTORE_URL: postgresql+psycopg://google_health_agent_test:synthetic-app-password@127.0.0.1:5432/google_health_agent_restore
+        run: uv run pytest -q tests/integration/test_postgres.py -k restored
