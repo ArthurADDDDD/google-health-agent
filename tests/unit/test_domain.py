@@ -69,3 +69,15 @@ def test_production_mcp_requires_exact_allowlists_and_distinct_client_tokens() -
             mcp_auth_enabled=True,
             health_mcp_tokens='{"claude":"same","codex":"same"}',
         )
+
+
+def test_production_google_reports_must_not_use_console_mailer() -> None:
+    with pytest.raises(ConfigurationError, match="MAILER=smtp"):
+        Settings(
+            app_env="production",
+            health_provider="google",
+            google_client_id="mock-client",
+            google_client_secret="mock-secret",
+            google_redirect_uri="https://health.example.test/oauth/callback",
+            google_token_encryption_key="mock-encryption-key",
+        )

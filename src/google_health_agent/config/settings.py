@@ -65,6 +65,15 @@ class Settings(BaseSettings):
             raise ConfigurationError(
                 "Production MCP Host and Origin allowlists must use exact values."
             )
+        if (
+            self.app_env == "production"
+            and self.health_provider == "google"
+            and self.mailer == "console"
+        ):
+            raise ConfigurationError(
+                "Production Google Health deployments require MAILER=smtp so private reports "
+                "are not printed to process output."
+            )
         return self
 
     @property

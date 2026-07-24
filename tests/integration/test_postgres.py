@@ -12,6 +12,7 @@ from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import text
 
 from alembic import command
+from google_health_agent.brief.workflow import run_brief
 from google_health_agent.config import Settings
 from google_health_agent.mcp.server import create_app
 from google_health_agent.providers.synthetic import SyntheticHealthProvider
@@ -116,3 +117,31 @@ async def test_restored_postgres_supports_analytics_and_mcp() -> None:
         result = await session.call_tool("get_data_quality", {"days": 30, "end_date": "2026-07-24"})
         assert not result.isError
         assert result.structuredContent
+
+
+def test_postgres_authenticated_fake_daily_brief(tmp_path, monkeypatch, capsys) -> None:
+    assert POSTGRES_TEST_URL
+    monkeypatch.chdir(tmp_path)
+    repository = HealthRepository(POSTGRES_TEST_URL)
+    repository.initialize()
+    end = date.today()
+    import asyncio
+
+    points = asyncio.run(SyntheticHealthProvider(20260724).fetch(end - timedelta(days=119), end))
+    repository.replace_synthetic(points)
+    settings = Settings(
+        app_env="test",
+        database_url=POSTGRES_TEST_URL,
+        mcp_auth_enabled=True,
+        health_mcp_tokens=(
+            '{"fake":"synthetic-postgres-fake-token",'
+            '"claude":"synthetic-postgres-claude-token",'
+            '"codex":"synthetic-postgres-codex-token"}'
+        ),
+    )
+    output = run_brief("fake", False, settings)
+    assert output and output.exists()
+    report = output.read_text()
+    assert "SYNTHETIC DATA" in report
+    assert "Data completeness" in report
+    assert "Health Brief" in capsys.readouterr().out

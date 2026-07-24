@@ -9,12 +9,12 @@ def test_agent_example_configs_parse() -> None:
     server = claude["mcpServers"]["google-health-agent"]
     assert server["type"] == "http"
     assert server["url"].endswith("/mcp}")
-    assert "${HEALTH_MCP_TOKEN}" in server["headers"]["Authorization"]
+    assert "${HEALTH_MCP_CLAUDE_TOKEN}" in server["headers"]["Authorization"]
 
     codex = tomllib.loads((root / "examples/codex/config.toml.example").read_text())
     configured = codex["mcp_servers"]["google_health_agent"]
     assert configured["url"] == "http://127.0.0.1:8000/mcp"
-    assert configured["bearer_token_env_var"] == "HEALTH_MCP_TOKEN"
+    assert configured["bearer_token_env_var"] == "HEALTH_MCP_CODEX_TOKEN"
 
 
 def test_public_environment_has_no_secret_values() -> None:

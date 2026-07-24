@@ -244,7 +244,10 @@ class GoogleHealthProvider(HealthProvider):
     def _normalize(data_type: str, raw: dict[str, Any]) -> HealthDataPoint:
         field, _, value_field, unit = DATA_TYPES[data_type]
         body = raw[field]
-        start_time, end_time, civil_date, offset = _observation_time(body)
+        start_time, end_time, civil_date, offset = _observation_time(
+            body,
+            prefer_interval_end=data_type == "sleep",
+        )
         value = _metric_value(data_type, body, value_field, start_time, end_time)
         source_raw = raw.get("dataSource", {})
         device = source_raw.get("device") or {}
@@ -288,14 +291,21 @@ class GoogleHealthProvider(HealthProvider):
         )
 
 
-def _observation_time(body: dict[str, Any]) -> tuple[datetime, datetime, date, int]:
+def _observation_time(
+    body: dict[str, Any],
+    *,
+    prefer_interval_end: bool = False,
+) -> tuple[datetime, datetime, date, int]:
     interval = body.get("interval")
     sample = body.get("sampleTime")
     if isinstance(interval, dict):
         start = _parse_datetime(interval["startTime"])
         end = _parse_datetime(interval["endTime"])
-        civil = _civil_date(interval.get("civilStartTime", {}).get("date")) or start.date()
-        offset = _duration_minutes(interval.get("startUtcOffset", "0s"))
+        civil_key = "civilEndTime" if prefer_interval_end else "civilStartTime"
+        offset_key = "endUtcOffset" if prefer_interval_end else "startUtcOffset"
+        fallback_date = end.date() if prefer_interval_end else start.date()
+        civil = _civil_date(interval.get(civil_key, {}).get("date")) or fallback_date
+        offset = _duration_minutes(interval.get(offset_key, "0s"))
         return start, end, civil, offset
     if isinstance(sample, dict):
         physical = sample.get("physicalTime")

@@ -90,6 +90,7 @@ def test_preferred_step_source_retains_intraday_intervals_and_aggregates(tmp_pat
         _step("watch-1", 100, "watch", 8, priority=10),
         _step("watch-2", 200, "watch", 9, priority=10),
         _step("phone-1", 900, "phone", 8, priority=20),
+        _step("health-connect-1", 1200, "health-connect", 8, priority=30),
     ]
     selected, issues = preferred_points(points, preferred_source="watch")
     assert [point.external_id for point in selected] == ["watch-1", "watch-2"]

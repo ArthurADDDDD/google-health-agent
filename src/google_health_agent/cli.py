@@ -23,30 +23,56 @@ def _repository(settings: Settings) -> HealthRepository:
     return repository
 
 
+def _configured(*values: object) -> str:
+    return "configured" if all(value is not None and bool(value) for value in values) else "missing"
+
+
+def _readiness_lines(settings: Settings, repository: HealthRepository) -> list[str]:
+    database_kind = "SQLite" if settings.database_url.startswith("sqlite") else "PostgreSQL"
+    token_status = (
+        f"configured ({len(settings.mcp_token_map)} independent client credential(s))"
+        if settings.mcp_auth_enabled
+        else "disabled (localhost demo only)"
+    )
+    google_status = _configured(
+        settings.google_client_id,
+        settings.google_client_secret,
+        settings.google_redirect_uri,
+        settings.google_token_encryption_key,
+    )
+    smtp_status = _configured(
+        settings.smtp_host,
+        settings.smtp_username,
+        settings.smtp_password,
+        settings.mail_from,
+        settings.mail_to,
+    )
+    provider_credentials = google_status if settings.health_provider == "google" else "not required"
+    return [
+        f"Environment: {settings.app_env}",
+        f"Provider: {settings.health_provider}",
+        f"Provider credentials: {provider_credentials}",
+        f"Database: {database_kind}",
+        f"Database status: ready ({repository.count()} observations)",
+        "MCP transport: Streamable HTTP",
+        f"MCP authentication: {token_status}",
+        f"Claude CLI: {'installed' if which('claude') else 'not installed'}",
+        f"Codex CLI: {'installed' if which('codex') else 'not installed'}",
+        f"Daily Brief agent: {settings.daily_brief_agent}",
+        f"Mailer: {settings.mailer}",
+        f"SMTP credentials: {smtp_status if settings.mailer == 'smtp' else 'not required'}",
+        "Scheduler: external (not configured by this application)",
+    ]
+
+
 @app.command()
 def doctor() -> None:
     """Report secret-safe environment readiness."""
     settings = _settings()
     repository = _repository(settings)
     typer.echo("Google Health Agent")
-    typer.echo()
-    typer.echo(f"Environment: {settings.app_env}")
-    typer.echo(f"Provider: {settings.health_provider}")
-    database_kind = "SQLite" if settings.database_url.startswith("sqlite") else "PostgreSQL"
-    typer.echo(f"Database: {database_kind}")
-    typer.echo(f"Database status: OK ({repository.count()} observations)")
-    typer.echo()
-    typer.echo("MCP:")
-    typer.echo("  transport: Streamable HTTP")
-    typer.echo(f"  URL: http://{settings.mcp_host}:{settings.mcp_port}/mcp")
-    auth = "enabled" if settings.mcp_auth_enabled else "disabled (localhost demo)"
-    typer.echo(f"  Authentication: {auth}")
-    typer.echo()
-    typer.echo("Agents:")
-    typer.echo(f"  Claude CLI: {'installed' if which('claude') else 'not installed'}")
-    typer.echo(f"  Codex CLI: {'installed' if which('codex') else 'not installed'}")
-    typer.echo()
-    typer.echo(f"Mailer: {settings.mailer}")
+    for line in _readiness_lines(settings, repository):
+        typer.echo(line)
 
 
 @app.command()
@@ -122,11 +148,11 @@ async def _google_sync(
 
 @app.command()
 def status() -> None:
-    """Show database status without exposing data payloads."""
+    """Show component status without exposing configuration values or data payloads."""
     settings = _settings()
-    count = _repository(settings).count()
-    typer.echo(f"Provider: {settings.health_provider}")
-    typer.echo(f"Observations: {count}")
+    repository = _repository(settings)
+    for line in _readiness_lines(settings, repository):
+        typer.echo(line)
     label = "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "private"
     typer.echo(f"Data label: {label}")
 

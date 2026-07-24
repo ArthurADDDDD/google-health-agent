@@ -9,7 +9,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 from google_health_agent.agents import AgentRunner, ClaudeRunner, CodexRunner, FakeRunner
 from google_health_agent.config import Settings
-from google_health_agent.errors import ConfigurationError
+from google_health_agent.errors import ConfigurationError, DataUnavailable
 from google_health_agent.mail import ConsoleMailer, Mailer, SMTPMailer
 from google_health_agent.mcp.server import create_app
 from google_health_agent.storage import HealthRepository
@@ -35,11 +35,17 @@ async def _fake_facts(settings: Settings) -> dict[str, object]:
     repository.initialize()
     app = create_app(settings, repository)
     end_date = date.today().isoformat()
+    headers: dict[str, str] = {}
+    if settings.mcp_auth_enabled:
+        token = next(iter(settings.mcp_token_map.values()))
+        headers["Authorization"] = f"Bearer {token}"
+    facts: dict[str, object] = {}
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url=f"http://{settings.mcp_host}:{settings.mcp_port}",
+            headers=headers,
         ) as client,
         streamable_http_client(
             f"http://{settings.mcp_host}:{settings.mcp_port}/mcp",
@@ -55,13 +61,23 @@ async def _fake_facts(settings: Settings) -> dict[str, object]:
             "recovery": ("get_recovery", {"days": 30, "end_date": end_date}),
             "activity": ("get_activity", {"days": 30, "end_date": end_date}),
         }
-        facts: dict[str, object] = {}
         for key, (tool_name, arguments) in calls.items():
             result = await session.call_tool(tool_name, arguments)
             if result.isError or not result.structuredContent:
                 raise ConfigurationError(f"FakeRunner could not call MCP tool {tool_name}.")
             facts[key] = result.structuredContent
-        return facts
+    overview = facts["overview"]
+    if not isinstance(overview, dict):
+        raise DataUnavailable("Daily Brief has no health overview.")
+    summaries = overview.get("summaries")
+    if not isinstance(summaries, dict) or not any(
+        isinstance(summary, dict) and int(summary.get("count", 0)) > 0
+        for summary in summaries.values()
+    ):
+        raise DataUnavailable(
+            "Daily Brief requires stored observations; no report or email was generated."
+        )
+    return facts
 
 
 def run_brief(agent: str, dry_run: bool, settings: Settings) -> Path | None:

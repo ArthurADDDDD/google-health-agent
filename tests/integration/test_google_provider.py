@@ -78,6 +78,33 @@ def _step(day: int, count: str) -> dict:
     }
 
 
+def _sleep_crossing_midnight() -> dict:
+    return {
+        "dataSource": {
+            "recordingMethod": "PASSIVELY_MEASURED",
+            "platform": "FITBIT",
+            "device": {"displayName": "Mock Watch"},
+        },
+        "sleep": {
+            "interval": {
+                "startTime": "2026-01-01T15:30:00Z",
+                "startUtcOffset": "28800s",
+                "endTime": "2026-01-01T23:00:00Z",
+                "endUtcOffset": "28800s",
+                "civilStartTime": {
+                    "date": {"year": 2026, "month": 1, "day": 1},
+                    "time": {"hours": 23, "minutes": 30},
+                },
+                "civilEndTime": {
+                    "date": {"year": 2026, "month": 1, "day": 2},
+                    "time": {"hours": 7},
+                },
+            },
+            "summary": {"minutesAsleep": 420},
+        },
+    }
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_pagination_and_normalization() -> None:
@@ -137,6 +164,27 @@ async def test_current_page_sizes_filters_and_query_window_limits() -> None:
     assert '"2026-01-01"' in filters[0] and '"2026-01-15"' in filters[0]
     assert '"2026-01-15"' in filters[1] and '"2026-01-29"' in filters[1]
     assert '"2026-01-29"' in filters[2] and '"2026-01-31"' in filters[2]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_sleep_is_attributed_to_local_wake_date_across_midnight() -> None:
+    respx.get(SLEEP_URL).mock(
+        return_value=httpx.Response(200, json={"dataPoints": [_sleep_crossing_midnight()]})
+    )
+    async with httpx.AsyncClient() as client:
+        provider = GoogleHealthProvider(
+            MemoryTokenStore(_token()),
+            _oauth(client),
+            client,
+            data_types=("sleep",),
+        )
+        points = await provider.fetch(date(2026, 1, 2), date(2026, 1, 2))
+    assert len(points) == 1
+    assert points[0].start_time == datetime(2026, 1, 1, 15, 30, tzinfo=UTC)
+    assert points[0].end_time == datetime(2026, 1, 1, 23, 0, tzinfo=UTC)
+    assert points[0].civil_date == date(2026, 1, 2)
+    assert points[0].utc_offset_minutes == 480
 
 
 @pytest.mark.asyncio
