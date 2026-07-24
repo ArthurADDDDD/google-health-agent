@@ -1,0 +1,4 @@
+[mcp_servers.google_health_agent]
+url = "http://127.0.0.1:8000/mcp"
+bearer_token_env_var = "HEALTH_MCP_TOKEN"
+

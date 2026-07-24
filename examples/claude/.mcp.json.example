@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "google-health-agent": {
+      "type": "http",
+      "url": "${HEALTH_MCP_URL:-http://127.0.0.1:8000/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${HEALTH_MCP_TOKEN}"
+      }
+    }
+  }
+}
+
