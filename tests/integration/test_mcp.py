@@ -64,6 +64,15 @@ async def test_initialize_list_and_call_every_tool(mcp_app) -> None:
             assert tool.annotations.readOnlyHint is True
             assert tool.annotations.destructiveHint is False
             assert tool.outputSchema
+        schemas = {tool.name: tool.inputSchema for tool in listed.tools}
+        assert schemas["get_metric"]["required"] == ["metric", "start_date", "end_date"]
+        assert schemas["compare_periods"]["required"] == [
+            "metric",
+            "period_a_start",
+            "period_a_end",
+            "period_b_start",
+            "period_b_end",
+        ]
 
         calls = {
             "get_health_overview": {"days": 30, "end_date": "2026-06-30"},

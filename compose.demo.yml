@@ -1,0 +1,24 @@
+services:
+  google-health-agent:
+    build: .
+    environment:
+      APP_ENV: demo
+      HEALTH_PROVIDER: synthetic
+      DATABASE_URL: sqlite:////app/data/demo.sqlite
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8000
+      MCP_AUTH_ENABLED: "true"
+      HEALTH_MCP_TOKEN: synthetic-demo-container-token
+      MAILER: console
+    command:
+      - /bin/sh
+      - -c
+      - uv run --no-sync healthctl demo && uv run --no-sync healthctl serve
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - demo-data:/app/data
+
+volumes:
+  demo-data:
+
