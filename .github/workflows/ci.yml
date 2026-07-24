@@ -50,6 +50,22 @@ jobs:
       - run: uv sync --locked
       - name: Build production image
         run: docker build --tag google-health-agent:ci .
+      - name: Validate production Compose example
+        run: |
+          export DATABASE_URL="postgresql+psycopg://app:$(openssl rand -hex 16)@postgres:5432/app"
+          export HEALTH_MCP_TOKENS="{\"claude\":\"$(openssl rand -hex 32)\",\"codex\":\"$(openssl rand -hex 32)\"}"
+          export MCP_ALLOWED_HOSTS="health.example.com"
+          export MCP_ALLOWED_ORIGINS="https://health.example.com"
+          export GOOGLE_CLIENT_ID="synthetic-client"
+          export GOOGLE_CLIENT_SECRET="$(openssl rand -hex 32)"
+          export GOOGLE_REDIRECT_URI="https://health.example.com/oauth/google-health/callback"
+          export GOOGLE_TOKEN_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+          export SMTP_HOST="smtp.example.com"
+          export SMTP_USERNAME="synthetic-user"
+          export SMTP_PASSWORD="$(openssl rand -hex 32)"
+          export MAIL_FROM="synthetic@example.com"
+          export MAIL_TO="synthetic@example.com"
+          docker compose -f compose.production.example.yml config --quiet
       - name: Verify non-root image
         run: |
           image_user="$(docker image inspect google-health-agent:ci --format '{{.Config.User}}')"
@@ -145,10 +161,10 @@ jobs:
             "CREATE ROLE google_health_agent_test LOGIN PASSWORD 'synthetic-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"
           createdb --maintenance-db="${PGADMIN}" \
             --owner=google_health_agent_test google_health_agent_test
-      - name: Verify migrations, storage, analytics, and MCP
+      - name: Verify migrations and authenticated synthetic Daily Brief
         env:
           POSTGRES_TEST_URL: postgresql+psycopg://google_health_agent_test:synthetic-app-password@127.0.0.1:5432/google_health_agent_test
-        run: uv run pytest -q tests/integration/test_postgres.py -k migration
+        run: uv run pytest -q tests/integration/test_postgres.py -k "migration or daily_brief"
       - name: Verify PostgreSQL backup and restore
         env:
           POSTGRES_ADMIN_DSN: postgresql://postgres:synthetic-admin-password@127.0.0.1:5432/postgres

@@ -30,6 +30,7 @@ def test_fake_runner_writes_explicitly_synthetic_brief(tmp_path) -> None:
     assert result.exit_code == 0
     assert "SYNTHETIC DATA" in output.read_text()
     assert "No medical interpretation" in result.stdout
+    assert "Completeness: 0.95" in result.stdout
 
 
 def test_current_agent_cli_commands_are_non_interactive(tmp_path) -> None:

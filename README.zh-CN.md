@@ -59,10 +59,10 @@ Claude Code 使用 [示例配置](examples/claude/.mcp.json.example)，详见
 
 ## Google Health
 
-Phase 1 已按当前 Google 官方文档实现 Google Health API v4 请求、Web Server OAuth
+Phase 2A 已按当前 Google 官方文档实现 Google Health API v4 请求、Web Server OAuth
 Authorization Code Flow、offline refresh、readonly scopes、加密 TokenStore、分页、重试和
 mocked integration tests。默认 provider 仍为 `synthetic`，没有执行任何真实 OAuth 或真实
-数据访问。详见 [Google Health 文档](docs/google-health.md)。
+数据访问；Phase 2B 仍需单独授权。详见 [Google Health 文档](docs/google-health.md)。
 
 ## 安全
 
@@ -89,8 +89,9 @@ uv run python scripts/secret_scan.py
 ## Roadmap
 
 1. Phase 1：Synthetic / MCP / Agent Architecture
-2. Phase 2：Private Google Health Deployment
-3. Phase 3：Automated Daily Agent Brief
-4. Phase 4：Additional Health Providers
+2. Phase 2A：Private Deployment Preparation（仅 synthetic / mocked）
+3. Phase 2B：另行授权的 Private Google Health Deployment
+4. Phase 3：Automated Daily Agent Brief
+5. Phase 4：Additional Health Providers
 
 MIT License。

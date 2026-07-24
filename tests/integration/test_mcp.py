@@ -64,6 +64,8 @@ async def test_initialize_list_and_call_every_tool(mcp_app) -> None:
             assert tool.annotations
             assert tool.annotations.readOnlyHint is True
             assert tool.annotations.destructiveHint is False
+            assert tool.annotations.idempotentHint is True
+            assert tool.annotations.openWorldHint is False
             assert tool.outputSchema
         schemas = {tool.name: tool.inputSchema for tool in listed.tools}
         assert schemas["get_metric"]["required"] == ["metric", "start_date", "end_date"]

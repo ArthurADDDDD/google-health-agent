@@ -38,6 +38,7 @@ interpreted using server timezone.
 offline refresh. Structured errors cover permission denial, missing data types, rate limits,
 timeouts, malformed responses, and unavailable service.
 
-All Phase 1 provider integration tests use mocked HTTP. Real consent, tokens, accounts, and
-health data wait for Phase 2.
-
+All Phase 2A provider integration tests use mocked HTTP. Real consent, tokens, accounts, and
+health data require separate Phase 2B authorization. The first real import, if later authorized,
+must expand gradually: a minimal smoke test, 1–3 days, 7 days, 30 days, then 90 days. It must not
+begin with an unbounded or full-history download.

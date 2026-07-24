@@ -1,32 +1,52 @@
 services:
   google-health-agent:
     build: .
+    restart: unless-stopped
     environment:
       APP_ENV: production
       HEALTH_PROVIDER: google
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${DATABASE_URL:?required}
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8000
       MCP_AUTH_ENABLED: "true"
-      HEALTH_MCP_TOKENS: ${HEALTH_MCP_TOKENS}
-      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS}
-      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS}
-      PREFERRED_STEP_SOURCE: ${PREFERRED_STEP_SOURCE}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
-      GOOGLE_TOKEN_ENCRYPTION_KEY: ${GOOGLE_TOKEN_ENCRYPTION_KEY}
-      MAILER: ${MAILER}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_USERNAME: ${SMTP_USERNAME}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      MAIL_FROM: ${MAIL_FROM}
-      MAIL_TO: ${MAIL_TO}
+      HEALTH_MCP_TOKENS: ${HEALTH_MCP_TOKENS:?required}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:?required}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:?required}
+      PREFERRED_STEP_SOURCE: ${PREFERRED_STEP_SOURCE:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?required}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?required}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:?required}
+      GOOGLE_TOKEN_ENCRYPTION_KEY: ${GOOGLE_TOKEN_ENCRYPTION_KEY:?required}
+      MAILER: smtp
+      SMTP_HOST: ${SMTP_HOST:?required}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:?required}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?required}
+      MAIL_FROM: ${MAIL_FROM:?required}
+      MAIL_TO: ${MAIL_TO:?required}
+      DAILY_BRIEF_AGENT: ${DAILY_BRIEF_AGENT:-fake}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - encrypted-credentials:/app/credentials
+      - private-reports:/app/reports
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
 volumes:
   encrypted-credentials:
+  private-reports:

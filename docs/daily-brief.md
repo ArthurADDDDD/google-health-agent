@@ -10,7 +10,8 @@ without printing secrets. FakeRunner is the CI path: it calls the same MCP tools
 official client and writes an explicitly synthetic, facts-only report.
 
 Reports are stored under gitignored `reports/YYYY-MM-DD/`. ConsoleMailer is the demo default;
-SMTPMailer requires all settings. `--dry-run` executes no agent and sends no email. Scheduling
-is deliberately external to the app: future deployments can call `healthctl sync` and
-`healthctl brief` from systemd or cron.
-
+SMTPMailer requires all settings, and a production Google provider cannot use ConsoleMailer
+because that would print private report content to process output. `--dry-run` executes no agent
+and sends no email. Scheduling is deliberately external to the app: future deployments can call
+`healthctl sync` and `healthctl brief` from systemd or cron. A delivery failure leaves the
+generated report in place for secret-safe diagnosis; missing observations produce no report.

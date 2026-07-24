@@ -105,7 +105,7 @@ example and set the endpoint. For authenticated deployments also set the token:
 ```bash
 cp examples/claude/.mcp.json.example .mcp.json
 export HEALTH_MCP_URL=http://127.0.0.1:8000/mcp
-export HEALTH_MCP_TOKEN=
+export HEALTH_MCP_CLAUDE_TOKEN=
 claude mcp list
 ```
 
@@ -127,7 +127,7 @@ named environment variable:
 ```toml
 [mcp_servers.google_health_agent]
 url = "http://127.0.0.1:8000/mcp"
-bearer_token_env_var = "HEALTH_MCP_TOKEN"
+bearer_token_env_var = "HEALTH_MCP_CODEX_TOKEN"
 ```
 
 The URL itself is literal TOML; environment-variable expansion for `url` is not used here.
@@ -162,9 +162,9 @@ OAuth Web Server Authorization Code Flow with offline access, and only these sco
 - `googlehealth.health_metrics_and_measurements.readonly`
 - `googlehealth.activity_and_fitness.readonly`
 
-Phase 1 includes request construction, pagination, retry/backoff, refresh, encrypted token
+Phase 2A includes request construction, pagination, retry/backoff, refresh, encrypted token
 storage, normalization, and mocked tests. It never authorizes a real account. Real credentials
-and data belong only in the future Private Deployment Phase. See
+and data remain blocked until a separately authorized private-server stage. See
 [Google Health](docs/google-health.md).
 
 ## Security and privacy
@@ -190,7 +190,8 @@ docker compose -f compose.demo.yml up --build
 The demo publishes only `127.0.0.1:8000`, uses synthetic data, and automatically configures a
 non-secret demo-only container token (`synthetic-demo-container-token`). A client must send
 that token as a Bearer token. Production examples contain environment substitutions only and
-are documentation, not a deployment action.
+are documentation, not a deployment action. See the
+[server deployment checklist](SERVER_DEPLOYMENT_CHECKLIST.md) before any private deployment.
 
 ## Development
 
@@ -208,9 +209,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Tests never contact Google Health or a r
 ## Roadmap
 
 1. Phase 1 — Synthetic data, MCP, and agent architecture.
-2. Phase 2 — Private Google Health deployment.
-3. Phase 3 — Automated daily agent brief.
-4. Phase 4 — Additional health providers.
+2. Phase 2A — Private deployment preparation with synthetic and mocked data only.
+3. Phase 2B — Separately authorized private Google Health deployment.
+4. Phase 3 — Automated daily agent brief.
+5. Phase 4 — Additional health providers.
 
 ## License
 

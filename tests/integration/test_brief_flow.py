@@ -6,7 +6,7 @@ import pytest
 import google_health_agent.brief.workflow as workflow
 from google_health_agent.brief.workflow import run_brief
 from google_health_agent.config import Settings
-from google_health_agent.errors import DataUnavailable
+from google_health_agent.errors import DataUnavailable, ProviderUnavailable
 from google_health_agent.mail import Mailer
 from google_health_agent.providers.synthetic import SyntheticHealthProvider
 from google_health_agent.storage import HealthRepository
@@ -19,6 +19,8 @@ def test_fake_runner_uses_mcp_and_console_mailer(tmp_path, monkeypatch, capsys) 
     repository.initialize()
     end = date.today()
     points = asyncio.run(SyntheticHealthProvider(100).fetch(end - timedelta(days=119), end))
+    missing_day = end - timedelta(days=3)
+    points = [point for point in points if point.civil_date != missing_day]
     repository.upsert(points)
     output = run_brief("fake", False, Settings(database_url=database_url))
     assert output
@@ -26,6 +28,7 @@ def test_fake_runner_uses_mcp_and_console_mailer(tmp_path, monkeypatch, capsys) 
     text = output.read_text()
     assert "SYNTHETIC DATA" in text
     assert "Data completeness" in text
+    assert "Completeness: 1.0" not in text
     assert "Health Brief" in capsys.readouterr().out
 
 
@@ -58,6 +61,22 @@ def test_empty_database_does_not_generate_or_mail_brief(tmp_path, monkeypatch) -
     monkeypatch.setattr(workflow, "_mailer", lambda settings: MustNotSend())
     with pytest.raises(DataUnavailable, match="no report or email"):
         run_brief("fake", False, Settings(database_url=database_url))
+    assert not (tmp_path / "reports").exists()
+
+
+def test_mcp_or_provider_failure_cannot_generate_brief(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    async def unavailable(settings):
+        raise ProviderUnavailable("mock MCP/provider unavailable")
+
+    monkeypatch.setattr(workflow, "_fake_facts", unavailable)
+    with pytest.raises(ProviderUnavailable, match="mock MCP/provider"):
+        run_brief(
+            "fake",
+            False,
+            Settings(database_url=f"sqlite:///{tmp_path / 'unavailable.sqlite'}"),
+        )
     assert not (tmp_path / "reports").exists()
 
 

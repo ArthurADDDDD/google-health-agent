@@ -237,6 +237,23 @@ async def test_http_errors_are_structured(status, error) -> None:
                 await provider.fetch(date(2026, 1, 1), date(2026, 1, 1))
 
 
+@pytest.mark.asyncio
+@respx.mock
+async def test_retryable_server_error_is_attempted_three_times() -> None:
+    route = respx.get(DATA_URL).mock(return_value=httpx.Response(503))
+    async with httpx.AsyncClient() as client:
+        provider = GoogleHealthProvider(
+            MemoryTokenStore(_token()),
+            _oauth(client),
+            client,
+            data_types=("steps",),
+            sleep=_no_sleep,
+        )
+        with pytest.raises(ProviderUnavailable):
+            await provider.fetch(date(2026, 1, 1), date(2026, 1, 1))
+    assert route.call_count == 3
+
+
 async def _no_sleep(_: float) -> None:
     return None
 

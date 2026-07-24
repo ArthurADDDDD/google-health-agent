@@ -59,6 +59,19 @@ def test_encrypted_token_store_never_writes_plaintext(tmp_path) -> None:
     assert loaded.access_token.get_secret_value() == "access-test-value"
     assert path.stat().st_mode & 0o777 == 0o600
 
+    replacement = TokenSet(
+        access_token="replacement-access-value",
+        refresh_token="replacement-refresh-value",
+        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    store.save(replacement)
+    replaced = store.load()
+    assert replaced
+    assert replaced.access_token.get_secret_value() == "replacement-access-value"
+    assert replaced.expired()
+    replaced_raw = path.read_bytes()
+    assert b"replacement-access-value" not in replaced_raw
+
 
 def test_encryption_key_rotation_and_local_revocation(tmp_path) -> None:
     path = tmp_path / "token.enc"
