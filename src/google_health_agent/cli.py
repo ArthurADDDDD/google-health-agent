@@ -6,6 +6,7 @@ import typer
 from google_health_agent.analytics import summarize_metric
 from google_health_agent.analytics.quality import assess_quality, preferred_points
 from google_health_agent.config import Settings
+from google_health_agent.domain import HealthDataPoint
 from google_health_agent.providers.synthetic import SyntheticHealthProvider
 from google_health_agent.storage import HealthRepository
 
@@ -74,16 +75,49 @@ def demo(days: int = typer.Option(120, min=120, max=365)) -> None:
 def sync(days: int = typer.Option(30, min=1, max=365)) -> None:
     """Fetch and idempotently store provider observations."""
     settings = _settings()
-    if settings.health_provider != "synthetic":
-        raise typer.BadParameter("Google sync requires Phase 2 OAuth configuration.")
     end_date = date.today()
     start_date = end_date - timedelta(days=days - 1)
-    provider = SyntheticHealthProvider(settings.synthetic_seed)
     import asyncio
 
-    points = asyncio.run(provider.fetch(start_date, end_date))
+    if settings.health_provider == "synthetic":
+        provider = SyntheticHealthProvider(settings.synthetic_seed)
+        points = asyncio.run(provider.fetch(start_date, end_date))
+    else:
+        points = asyncio.run(_google_sync(settings, start_date, end_date))
     count = _repository(settings).upsert(points)
-    typer.echo(f"Synced {count} SYNTHETIC DATA observations.")
+    label = "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "private"
+    typer.echo(f"Synced {count} {label} observations.")
+
+
+async def _google_sync(
+    settings: Settings, start_date: date, end_date: date
+) -> list[HealthDataPoint]:
+    from pathlib import Path
+
+    import httpx
+
+    from google_health_agent.errors import ConfigurationError
+    from google_health_agent.providers.google_health import (
+        EncryptedFileTokenStore,
+        GoogleHealthProvider,
+        GoogleOAuthClient,
+    )
+
+    if settings.google_token_encryption_key is None:
+        raise ConfigurationError(
+            "GOOGLE_TOKEN_ENCRYPTION_KEY is required when HEALTH_PROVIDER=google."
+        )
+    async with httpx.AsyncClient(timeout=30) as client:
+        store = EncryptedFileTokenStore(
+            Path("credentials/google-health-token.enc"),
+            settings.google_token_encryption_key,
+        )
+        provider = GoogleHealthProvider(
+            store,
+            GoogleOAuthClient(settings, client),
+            client,
+        )
+        return await provider.fetch(start_date, end_date)
 
 
 @app.command()

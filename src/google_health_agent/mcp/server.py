@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -174,10 +174,55 @@ def create_app(settings: Settings, repository: HealthRepository | None = None) -
     async def safe_error(_: Request, exc: Exception) -> Response:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
+    oauth_routes: list[Route] = []
+    if settings.health_provider == "google":
+        from pathlib import Path
+
+        from google_health_agent.providers.google_health import (
+            EncryptedFileTokenStore,
+            GoogleOAuthClient,
+            OAuthStateStore,
+        )
+
+        if settings.google_token_encryption_key is None:
+            raise HealthAgentError(
+                "GOOGLE_TOKEN_ENCRYPTION_KEY is required for the Google provider."
+            )
+        oauth = GoogleOAuthClient(settings)
+        token_store = EncryptedFileTokenStore(
+            Path("credentials/google-health-token.enc"),
+            settings.google_token_encryption_key,
+        )
+        states = OAuthStateStore()
+
+        async def oauth_login(_: Request) -> Response:
+            return RedirectResponse(oauth.authorization_url(states.issue()))
+
+        async def oauth_callback(request: Request) -> Response:
+            code = request.query_params.get("code")
+            state = request.query_params.get("state")
+            if not code or not state:
+                return JSONResponse({"error": "Missing OAuth code or state."}, status_code=400)
+            states.consume(state)
+            tokens = await oauth.exchange_code(code)
+            token_store.save(tokens)
+            return JSONResponse(
+                {
+                    "status": "authorized",
+                    "message": "Google Health authorization stored securely.",
+                }
+            )
+
+        oauth_routes = [
+            Route("/oauth/google-health/login", oauth_login),
+            Route("/oauth/google-health/callback", oauth_callback),
+        ]
+
     app = Starlette(
         routes=[
             Route("/healthz", healthz),
             Route("/readyz", readyz),
+            *oauth_routes,
             Mount("/", app=mcp_app),
         ],
         lifespan=mcp_app.router.lifespan_context,
