@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import date, timedelta
+from statistics import median
 from typing import Any
 
 from google_health_agent.analytics import (
@@ -34,13 +35,32 @@ ACTIVITY_METRICS = (
     "sedentary_minutes",
     "exercise_minutes",
 )
+ADDITIVE_METRICS = {
+    "sleep_minutes",
+    "deep_sleep_minutes",
+    "rem_sleep_minutes",
+    "light_sleep_minutes",
+    "awake_minutes",
+    "steps",
+    "active_minutes",
+    "sedentary_minutes",
+    "exercise_minutes",
+}
 
 
 class HealthService:
     """Read-only application service used by CLI and MCP boundaries."""
 
-    def __init__(self, repository: HealthRepository) -> None:
+    def __init__(
+        self,
+        repository: HealthRepository,
+        *,
+        data_label: str = "SYNTHETIC DATA",
+        preferred_step_source: str | None = None,
+    ) -> None:
         self.repository = repository
+        self.data_label = data_label
+        self.preferred_step_source = preferred_step_source
 
     @staticmethod
     def _window(days: int, end_date: date | None, maximum: int = 365) -> tuple[date, date]:
@@ -54,8 +74,9 @@ class HealthService:
     ) -> tuple[date, date, list[HealthDataPoint], list[DataQualityIssue]]:
         start, end = self._window(days, end_date, maximum)
         raw = self.repository.query(start, end)
-        points, overlap = preferred_points(raw)
-        return start, end, points, assess_quality(points, start, end) + overlap
+        selected, overlap = preferred_points(raw, self.preferred_step_source)
+        points = self._daily_points(selected)
+        return start, end, points, assess_quality(raw, start, end) + overlap
 
     @staticmethod
     def _quality_payload(issues: list[DataQualityIssue]) -> list[dict[str, Any]]:
@@ -67,6 +88,18 @@ class HealthService:
         for point in points:
             grouped[point.metric].append(point)
         return grouped
+
+    @staticmethod
+    def _daily_points(points: list[HealthDataPoint]) -> list[HealthDataPoint]:
+        grouped: dict[tuple[str, date], list[HealthDataPoint]] = defaultdict(list)
+        for point in points:
+            grouped[(point.metric, point.civil_date)].append(point)
+        daily: list[HealthDataPoint] = []
+        for (metric, _), metric_points in sorted(grouped.items()):
+            values = [point.value for point in metric_points]
+            value = sum(values) if metric in ADDITIVE_METRICS else median(values)
+            daily.append(metric_points[0].model_copy(update={"value": value}))
+        return daily
 
     @staticmethod
     def _sources(points: list[HealthDataPoint]) -> list[dict[str, Any]]:
@@ -100,7 +133,7 @@ class HealthService:
             if grouped.get(metric)
         }
         return {
-            "data_label": "SYNTHETIC DATA" if all(p.synthetic for p in points) else "PRIVATE DATA",
+            "data_label": self.data_label,
             "period": {"start_date": start.isoformat(), "end_date": end.isoformat()},
             "summaries": summaries,
             "statistically_unusual": anomalies,
@@ -118,7 +151,7 @@ class HealthService:
         start, end, points, issues = self._load(days, end_date)
         grouped = self._group([point for point in points if point.metric in metrics])
         payload: dict[str, Any] = {
-            "data_label": "SYNTHETIC DATA",
+            "data_label": self.data_label,
             "period": {"start_date": start.isoformat(), "end_date": end.isoformat()},
             "summaries": {
                 metric: self._summary(metric, grouped.get(metric, []), days) for metric in metrics
@@ -153,9 +186,10 @@ class HealthService:
         if days < 1 or days > 365:
             raise InvalidDateRange("Please request a smaller date range (maximum 365 days).")
         raw = self.repository.query(start_date, end_date, metric)
-        points, issues = preferred_points(raw)
+        selected, issues = preferred_points(raw, self.preferred_step_source)
+        points = self._daily_points(selected)
         result: dict[str, Any] = {
-            "data_label": "SYNTHETIC DATA",
+            "data_label": self.data_label,
             "metric": metric,
             "period": {
                 "start_date": start_date.isoformat(),
@@ -163,7 +197,7 @@ class HealthService:
             },
             "summary": self._summary(metric, points, days),
             "data_quality": self._quality_payload(
-                assess_quality(points, start_date, end_date) + issues
+                assess_quality(raw, start_date, end_date) + issues
             ),
             "sources": self._sources(points),
         }
@@ -193,14 +227,14 @@ class HealthService:
             days = (end - start).days + 1
             if days < 1 or days > 365:
                 raise InvalidDateRange("Each comparison period must be 1-365 days.")
-        values_a = [
-            point.value for point in self.repository.query(period_a_start, period_a_end, metric)
-        ]
-        values_b = [
-            point.value for point in self.repository.query(period_b_start, period_b_end, metric)
-        ]
+        raw_a = self.repository.query(period_a_start, period_a_end, metric)
+        raw_b = self.repository.query(period_b_start, period_b_end, metric)
+        selected_a, _ = preferred_points(raw_a, self.preferred_step_source)
+        selected_b, _ = preferred_points(raw_b, self.preferred_step_source)
+        values_a = [point.value for point in self._daily_points(selected_a)]
+        values_b = [point.value for point in self._daily_points(selected_b)]
         return {
-            "data_label": "SYNTHETIC DATA",
+            "data_label": self.data_label,
             "period_a": {
                 "start_date": period_a_start.isoformat(),
                 "end_date": period_a_end.isoformat(),
@@ -223,7 +257,7 @@ class HealthService:
         for issue in issues:
             codes[issue.code] += 1
         return {
-            "data_label": "SYNTHETIC DATA",
+            "data_label": self.data_label,
             "period": {"start_date": start.isoformat(), "end_date": end.isoformat()},
             "completeness": round(1 - len(missing_days) / max(1, (end - start).days + 1), 4),
             "missing_days": missing_days,

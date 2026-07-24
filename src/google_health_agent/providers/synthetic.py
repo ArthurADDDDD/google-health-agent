@@ -141,7 +141,12 @@ class SyntheticHealthProvider(HealthProvider):
                         civil_date=day,
                         source=phone,
                         ingested_at=datetime.now(UTC),
-                        tags={"label": "SYNTHETIC DATA", "overlapping_source": True},
+                        tags={
+                            "label": "SYNTHETIC DATA",
+                            "overlapping_source": True,
+                            "incomplete_day": True,
+                            "delayed_sync": True,
+                        },
                     )
                 )
         return values

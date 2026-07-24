@@ -1,13 +1,13 @@
 from datetime import date, timedelta
+from json import dumps
 from shutil import which
 
 import typer
 
-from google_health_agent.analytics import summarize_metric
-from google_health_agent.analytics.quality import assess_quality, preferred_points
 from google_health_agent.config import Settings
 from google_health_agent.domain import HealthDataPoint
 from google_health_agent.providers.synthetic import SyntheticHealthProvider
+from google_health_agent.service import HealthService
 from google_health_agent.storage import HealthRepository
 
 app = typer.Typer(help="Google Health Agent administration CLI.", no_args_is_help=True)
@@ -140,13 +140,16 @@ def analytics_command(
     settings = _settings()
     end_date = date.today()
     start_date = end_date - timedelta(days=days - 1)
-    raw = _repository(settings).query(start_date, end_date)
-    selected, overlap_issues = preferred_points(raw)
-    points = [point for point in selected if point.metric == metric]
-    summary = summarize_metric(metric, [point.value for point in points], days)
-    quality = assess_quality(selected, start_date, end_date) + overlap_issues
-    typer.echo(summary.model_dump_json(indent=2))
-    typer.echo(f"Data quality issues: {len(quality)}")
+    service = HealthService(
+        _repository(settings),
+        data_label=(
+            "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "PRIVATE DATA"
+        ),
+        preferred_step_source=settings.preferred_step_source,
+    )
+    payload = service.metric(metric, start_date, end_date, granularity="summary")
+    typer.echo(dumps(payload["summary"], indent=2))
+    typer.echo(f"Data quality issues: {len(payload['data_quality'])}")
 
 
 @app.command()

@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     mcp_port: int = Field(8000, ge=1, le=65535)
     mcp_auth_enabled: bool = False
     health_mcp_token: SecretStr | None = None
+    mcp_allowed_hosts: str = ""
+    mcp_allowed_origins: str = ""
+    preferred_step_source: str | None = None
     google_client_id: SecretStr | None = None
     google_client_secret: SecretStr | None = None
     google_redirect_uri: str | None = None
@@ -40,11 +43,25 @@ class Settings(BaseSettings):
             is_loopback = self.mcp_host == "localhost"
         if not is_loopback and not self.mcp_auth_enabled:
             raise ConfigurationError("MCP authentication is required for non-localhost binding.")
+        if not is_loopback and (
+            not self.mcp_allowed_hosts.strip() or not self.mcp_allowed_origins.strip()
+        ):
+            raise ConfigurationError(
+                "MCP_ALLOWED_HOSTS and MCP_ALLOWED_ORIGINS are required for non-localhost binding."
+            )
         if self.mcp_auth_enabled and not self.health_mcp_token:
             raise ConfigurationError(
                 "HEALTH_MCP_TOKEN is required when MCP authentication is enabled."
             )
         return self
+
+    @property
+    def allowed_host_patterns(self) -> list[str]:
+        return [item.strip() for item in self.mcp_allowed_hosts.split(",") if item.strip()]
+
+    @property
+    def allowed_origin_patterns(self) -> list[str]:
+        return [item.strip() for item in self.mcp_allowed_origins.split(",") if item.strip()]
 
 
 @lru_cache

@@ -17,5 +17,6 @@ health.example.com → HTTPS proxy → Google Health Agent → PostgreSQL
 
 Before enabling Google provider: create secrets outside Git, register the exact HTTPS callback,
 run database migrations, set least-privilege readonly scopes, establish backup/restore and key
-rotation, verify authorization and revocation, and complete a private data-retention review.
-
+rotation, set exact `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` values for the public hostname,
+verify authorization and revocation, and complete a private data-retention review. If several
+step sources overlap, set `PREFERRED_STEP_SOURCE` to the trusted Google source name.

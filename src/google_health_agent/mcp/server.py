@@ -4,6 +4,7 @@ from typing import Any
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -48,6 +49,13 @@ READ_ONLY = ToolAnnotations(
 
 
 def create_mcp(service: HealthService, settings: Settings) -> FastMCP[None]:
+    transport_security = None
+    if settings.allowed_host_patterns or settings.allowed_origin_patterns:
+        transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=settings.allowed_host_patterns,
+            allowed_origins=settings.allowed_origin_patterns,
+        )
     mcp = FastMCP(
         "google-health-agent",
         instructions=SERVER_INSTRUCTIONS,
@@ -56,6 +64,7 @@ def create_mcp(service: HealthService, settings: Settings) -> FastMCP[None]:
         streamable_http_path="/mcp",
         json_response=True,
         stateless_http=True,
+        transport_security=transport_security,
     )
 
     def tool(
@@ -161,7 +170,13 @@ class BearerAuthMiddleware:
 def create_app(settings: Settings, repository: HealthRepository | None = None) -> Starlette:
     repository = repository or HealthRepository(settings.database_url)
     repository.initialize()
-    service = HealthService(repository)
+    service = HealthService(
+        repository,
+        data_label=(
+            "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "PRIVATE DATA"
+        ),
+        preferred_step_source=settings.preferred_step_source,
+    )
     mcp = create_mcp(service, settings)
     mcp_app = mcp.streamable_http_app()
 

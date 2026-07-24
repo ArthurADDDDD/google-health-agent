@@ -16,7 +16,6 @@ dependencies = [
   "httpx>=0.28,<1",
   "mcp>=1.26,<2",
   "numpy>=2.1,<3",
-  "pandas>=2.2,<4",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "sqlalchemy>=2.0,<3",
@@ -28,7 +27,6 @@ postgres = ["psycopg[binary]>=3.2,<4"]
 
 [dependency-groups]
 dev = [
-  "aiosqlite>=0.20,<1",
   "mypy>=1.14,<2",
   "pytest>=8.3,<10",
   "pytest-asyncio>=0.25,<2",
@@ -59,4 +57,3 @@ strict = true
 packages = ["google_health_agent"]
 exclude = ["alembic"]
 plugins = ["pydantic.mypy"]
-

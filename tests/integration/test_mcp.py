@@ -8,8 +8,9 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.types import TextContent
 
 from google_health_agent.config import Settings
-from google_health_agent.mcp.server import create_app
+from google_health_agent.mcp.server import create_app, create_mcp
 from google_health_agent.providers.synthetic import SyntheticHealthProvider
+from google_health_agent.service import HealthService
 from google_health_agent.storage import HealthRepository
 
 
@@ -149,3 +150,28 @@ async def test_bearer_authentication(tmp_path) -> None:
             json={},
         )
         assert accepted.status_code != 401
+
+
+def test_private_provider_is_never_labeled_synthetic(tmp_path) -> None:
+    repository = HealthRepository(f"sqlite:///{tmp_path / 'private-label.sqlite'}")
+    repository.initialize()
+    service = HealthService(repository, data_label="PRIVATE DATA")
+    assert service.overview(days=1, end_date=date(2026, 1, 1))["data_label"] == "PRIVATE DATA"
+
+
+def test_nonlocal_server_uses_explicit_transport_allowlists(tmp_path) -> None:
+    repository = HealthRepository(f"sqlite:///{tmp_path / 'transport.sqlite'}")
+    repository.initialize()
+    settings = Settings(
+        mcp_host="0.0.0.0",
+        mcp_auth_enabled=True,
+        health_mcp_token="test-only",
+        mcp_allowed_hosts="health.example.test",
+        mcp_allowed_origins="https://health.example.test",
+    )
+    mcp = create_mcp(HealthService(repository), settings)
+    transport = mcp.settings.transport_security
+    assert transport is not None
+    assert transport.enable_dns_rebinding_protection is True
+    assert transport.allowed_hosts == ["health.example.test"]
+    assert transport.allowed_origins == ["https://health.example.test"]

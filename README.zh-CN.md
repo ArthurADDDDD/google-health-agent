@@ -67,7 +67,8 @@ mocked integration tests。默认 provider 仍为 `synthetic`，没有执行任�
 ## 安全
 
 默认 local-first、自托管、read-only、无 telemetry。非 localhost 绑定必须开启 Bearer
-认证。公开检查命令：
+认证，并显式设置 `MCP_ALLOWED_HOSTS` 与 `MCP_ALLOWED_ORIGINS` 以防御 DNS rebinding。
+公开检查命令：
 
 ```bash
 uv run python scripts/secret_scan.py
@@ -93,4 +94,3 @@ uv run python scripts/secret_scan.py
 4. Phase 4：Additional Health Providers
 
 MIT License。
-

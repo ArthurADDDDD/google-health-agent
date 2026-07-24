@@ -170,8 +170,9 @@ and data belong only in the future Private Deployment Phase. See
 ## Security and privacy
 
 Defaults are local-first, self-hosted, read-only, minimal exposure, synthetic public tests, and
-no telemetry. Non-loopback binding requires Bearer authentication. OAuth and MCP tokens are
-never returned by tools or included in normal logs. Run:
+no telemetry. Non-loopback binding requires Bearer authentication plus explicit
+`MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` values for DNS-rebinding protection. OAuth and
+MCP tokens are never returned by tools or included in normal logs. Run:
 
 ```bash
 uv run python scripts/secret_scan.py
@@ -187,8 +188,9 @@ docker compose -f compose.demo.yml up --build
 ```
 
 The demo publishes only `127.0.0.1:8000`, uses synthetic data, and automatically configures a
-non-secret demo-only container token. Production examples contain environment substitutions
-only and are documentation, not a deployment action.
+non-secret demo-only container token (`synthetic-demo-container-token`). A client must send
+that token as a Bearer token. Production examples contain environment substitutions only and
+are documentation, not a deployment action.
 
 ## Development
 
@@ -213,4 +215,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Tests never contact Google Health or a r
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
