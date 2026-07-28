@@ -30,6 +30,19 @@ def _mailer(settings: Settings) -> Mailer:
     return ConsoleMailer() if settings.mailer == "console" else SMTPMailer(settings)
 
 
+def _embedded_mcp_authority(settings: Settings) -> str:
+    exact_allowed_host = next(
+        (host for host in settings.allowed_host_patterns if "*" not in host),
+        None,
+    )
+    if exact_allowed_host:
+        return exact_allowed_host
+    host = settings.mcp_host
+    if host in {"0.0.0.0", "::"}:
+        host = "127.0.0.1"
+    return f"{host}:{settings.mcp_port}"
+
+
 async def _fake_facts(settings: Settings) -> dict[str, object]:
     repository = HealthRepository(settings.database_url)
     repository.initialize()
@@ -39,16 +52,18 @@ async def _fake_facts(settings: Settings) -> dict[str, object]:
     if settings.mcp_auth_enabled:
         token = next(iter(settings.mcp_token_map.values()))
         headers["Authorization"] = f"Bearer {token}"
+    authority = _embedded_mcp_authority(settings)
+    endpoint = f"http://{authority}/mcp"
     facts: dict[str, object] = {}
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
-            base_url=f"http://{settings.mcp_host}:{settings.mcp_port}",
+            base_url=f"http://{authority}",
             headers=headers,
         ) as client,
         streamable_http_client(
-            f"http://{settings.mcp_host}:{settings.mcp_port}/mcp",
+            endpoint,
             http_client=client,
         ) as (read, write, _),
         ClientSession(read, write) as session,

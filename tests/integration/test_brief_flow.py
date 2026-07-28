@@ -49,6 +49,29 @@ def test_authenticated_fake_runner_uses_mcp(tmp_path, monkeypatch) -> None:
     assert output and "SYNTHETIC DATA" in output.read_text()
 
 
+def test_production_fake_runner_uses_exact_allowed_host(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    database_url = f"sqlite:///{tmp_path / 'production-host.sqlite'}"
+    repository = HealthRepository(database_url)
+    repository.initialize()
+    end = date.today()
+    points = asyncio.run(SyntheticHealthProvider(103).fetch(end - timedelta(days=119), end))
+    repository.upsert(points)
+    settings = Settings(
+        app_env="production",
+        health_provider="synthetic",
+        database_url=database_url,
+        mcp_host="0.0.0.0",
+        mcp_port=8000,
+        mcp_auth_enabled=True,
+        health_mcp_tokens='{"fake":"synthetic-production-fake-token"}',
+        mcp_allowed_hosts="127.0.0.1:18000,localhost:18000",
+        mcp_allowed_origins="http://127.0.0.1:18000,http://localhost:18000",
+    )
+    output = run_brief("fake", False, settings)
+    assert output and "SYNTHETIC DATA" in output.read_text()
+
+
 def test_empty_database_does_not_generate_or_mail_brief(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     database_url = f"sqlite:///{tmp_path / 'empty.sqlite'}"
