@@ -20,7 +20,8 @@ RUN uv sync --locked --no-dev --extra postgres
 RUN groupadd --gid "${APP_GID}" google-health-agent \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home google-health-agent \
     && mkdir -p /app/data /app/credentials /app/reports \
-    && chown -R "${APP_UID}:${APP_GID}" /app/data /app/credentials /app/reports
+    && chown -R "${APP_UID}:${APP_GID}" /app/data /app/credentials /app/reports \
+    && chmod 700 /app/data /app/credentials /app/reports
 
 USER google-health-agent
 

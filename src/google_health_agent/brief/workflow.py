@@ -116,7 +116,8 @@ def run_brief(agent: str, dry_run: bool, settings: Settings) -> Path | None:
     else:
         raise ConfigurationError("Agent must be one of: fake, claude, codex.")
 
-    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    output_file.parent.chmod(0o700)
     result = runner.run(DAILY_BRIEF_PROMPT, output_file)
     if result.exit_code != 0:
         raise ConfigurationError(
@@ -124,6 +125,7 @@ def run_brief(agent: str, dry_run: bool, settings: Settings) -> Path | None:
         )
     if agent != "codex":
         output_file.write_text(result.stdout, encoding="utf-8")
+    output_file.chmod(0o600)
     markdown = output_file.read_text(encoding="utf-8")
     _mailer(settings).send(f"Health Brief · {date.today().isoformat()}", markdown)
     return output_file

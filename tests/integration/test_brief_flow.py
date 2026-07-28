@@ -25,6 +25,8 @@ def test_fake_runner_uses_mcp_and_console_mailer(tmp_path, monkeypatch, capsys) 
     output = run_brief("fake", False, Settings(database_url=database_url))
     assert output
     assert output.exists()
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert output.parent.stat().st_mode & 0o777 == 0o700
     text = output.read_text()
     assert "SYNTHETIC DATA" in text
     assert "Data completeness" in text
