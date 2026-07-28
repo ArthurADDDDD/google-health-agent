@@ -72,6 +72,8 @@ jobs:
           test -n "${image_user}"
           test "${image_user}" != "0"
           test "${image_user}" != "root"
+          docker run --rm google-health-agent:ci \
+            python -c "import psycopg; from pathlib import Path; assert Path('alembic.ini').is_file(); assert Path('alembic/versions/0001_initial.py').is_file()"
       - name: Start synthetic production-style container
         run: |
           token="$(openssl rand -hex 32)"

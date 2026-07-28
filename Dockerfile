@@ -14,7 +14,9 @@ WORKDIR /app
 COPY --from=uv /uv /uvx /bin/
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
-RUN uv sync --locked --no-dev
+COPY alembic.ini ./
+COPY alembic ./alembic
+RUN uv sync --locked --no-dev --extra postgres
 RUN groupadd --gid "${APP_GID}" google-health-agent \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home google-health-agent \
     && mkdir -p /app/data /app/credentials /app/reports \
