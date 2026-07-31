@@ -615,6 +615,13 @@ PREFERRED_STEP_SOURCE=你的首选来源名称
 - 不要把健康数据、日志、截图和备份提交到 GitHub
 - 仅连接你自己部署并信任的 MCP 服务
 
+## 致谢
+
+本项目受 [Google Health Worker MCP V1](https://github.com/Ring8688/google-health-worker-mcp-V1) 启发。
+将 Google Health API v4 封装为只读远程 MCP 连接器供 Claude 使用的思路源于该项目，在此表示感谢。
+两个项目的实现方式有所不同：本项目的后端运行在你自己的 Linux 服务器上，使用 Python/SQLite（可选 PostgreSQL），
+并通过 Cloudflare Tunnel + Access 提供 OAuth 保护，而非部署在 Cloudflare Workers 上。
+
 ## License
 
 MIT License，详见 [LICENSE](LICENSE)。

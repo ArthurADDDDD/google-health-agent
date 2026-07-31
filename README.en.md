@@ -366,6 +366,17 @@ Store `GOOGLE_TOKEN_ENCRYPTION_KEY` separately. Never publish the database, toke
 - Do not expose a real-data MCP endpoint without authentication.
 - This project provides data and statistics, not medical diagnosis.
 
+## Acknowledgments
+
+This project was inspired by
+[Google Health Worker MCP V1](https://github.com/Ring8688/google-health-worker-mcp-V1).
+The idea of wrapping Google Health API v4 behind a read-only remote MCP connector for Claude
+originated there, and we gratefully acknowledge that contribution.
+
+The two projects take different implementation approaches: this backend runs on your own Linux
+server using Python/SQLite (optionally PostgreSQL), protected by Cloudflare Tunnel + Access OAuth,
+rather than deploying on Cloudflare Workers.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

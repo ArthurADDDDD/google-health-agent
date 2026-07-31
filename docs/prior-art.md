@@ -1,7 +1,10 @@
 # Prior-art review
 
 This project reviewed existing open-source health/fitness MCP work for architecture experience,
-not implementation reuse.
+not implementation reuse. The project was directly inspired by
+[Google Health Worker MCP V1](https://github.com/Ring8688/google-health-worker-mcp-V1) —
+the idea of wrapping Google Health API v4 behind a read-only remote MCP connector for Claude
+originated there, and this project gratefully acknowledges that starting point.
 
 ## Sources reviewed
 
