@@ -1,5 +1,5 @@
 from google_health_agent.config import Settings
-from google_health_agent.mail import ConsoleMailer, SMTPMailer
+from google_health_agent.mail import ConsoleMailer, DisabledMailer, SMTPMailer
 
 
 class FakeSMTP:
@@ -32,6 +32,11 @@ class FakeSMTP:
 def test_console_mailer(capsys) -> None:
     ConsoleMailer().send("Synthetic subject", "SYNTHETIC DATA")
     assert "SYNTHETIC DATA" in capsys.readouterr().out
+
+
+def test_disabled_mailer_never_writes_report_content(capsys) -> None:
+    DisabledMailer().send("Private subject", "PRIVATE HEALTH CONTENT")
+    assert capsys.readouterr().out == ""
 
 
 def test_smtp_mailer_with_mock_transport(monkeypatch) -> None:

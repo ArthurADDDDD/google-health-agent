@@ -52,11 +52,17 @@ class HealthRepository:
         return len(rows)
 
     def query(
-        self, start_date: date, end_date: date, metric: str | None = None
+        self,
+        start_date: date,
+        end_date: date,
+        metric: str | None = None,
+        *,
+        synthetic: bool = True,
     ) -> list[HealthDataPoint]:
         statement = (
             select(DataPointRow)
             .where(DataPointRow.civil_date.between(start_date, end_date))
+            .where(DataPointRow.synthetic.is_(synthetic))
             .order_by(DataPointRow.civil_date, DataPointRow.metric, DataPointRow.source_priority)
         )
         if metric:

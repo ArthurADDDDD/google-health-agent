@@ -177,6 +177,7 @@ def create_app(settings: Settings, repository: HealthRepository | None = None) -
             "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "PRIVATE DATA"
         ),
         preferred_step_source=settings.preferred_step_source,
+        synthetic=settings.health_provider == "synthetic",
     )
     mcp = create_mcp(service, settings)
     mcp_app = mcp.streamable_http_app()

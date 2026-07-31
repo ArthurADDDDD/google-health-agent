@@ -10,7 +10,7 @@ from mcp.client.streamable_http import streamable_http_client
 from google_health_agent.agents import AgentRunner, ClaudeRunner, CodexRunner, FakeRunner
 from google_health_agent.config import Settings
 from google_health_agent.errors import ConfigurationError, DataUnavailable
-from google_health_agent.mail import ConsoleMailer, Mailer, SMTPMailer
+from google_health_agent.mail import ConsoleMailer, DisabledMailer, Mailer, SMTPMailer
 from google_health_agent.mcp.server import create_app
 from google_health_agent.storage import HealthRepository
 
@@ -27,7 +27,11 @@ Keep the brief concise enough to read in an email.
 
 
 def _mailer(settings: Settings) -> Mailer:
-    return ConsoleMailer() if settings.mailer == "console" else SMTPMailer(settings)
+    if settings.mailer == "console":
+        return ConsoleMailer()
+    if settings.mailer == "disabled":
+        return DisabledMailer()
+    return SMTPMailer(settings)
 
 
 def _embedded_mcp_authority(settings: Settings) -> str:

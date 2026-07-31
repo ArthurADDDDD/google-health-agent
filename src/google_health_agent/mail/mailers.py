@@ -17,6 +17,13 @@ class ConsoleMailer(Mailer):
         print(f"{subject}\n\n{markdown}")
 
 
+class DisabledMailer(Mailer):
+    """Intentionally discard generated reports without writing their content to logs."""
+
+    def send(self, subject: str, markdown: str) -> None:
+        del subject, markdown
+
+
 class SMTPMailer(Mailer):
     def __init__(self, settings: Settings) -> None:
         required = {

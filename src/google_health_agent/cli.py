@@ -1,9 +1,15 @@
 from datetime import date, timedelta
 from json import dumps
+from pathlib import Path
 from shutil import which
 
 import typer
 
+from google_health_agent.backfill import (
+    BackfillLockedError,
+    exclusive_sync_lock,
+    run_backfill,
+)
 from google_health_agent.config import Settings
 from google_health_agent.domain import HealthDataPoint
 from google_health_agent.providers.synthetic import SyntheticHealthProvider
@@ -11,6 +17,9 @@ from google_health_agent.service import HealthService
 from google_health_agent.storage import HealthRepository
 
 app = typer.Typer(help="Google Health Agent administration CLI.", no_args_is_help=True)
+
+_SYNC_LOCK_PATH = Path("credentials/sync-state/google-health-sync.lock")
+_BACKFILL_STATE_FILE = "credentials/sync-state/google-health-backfill-state.json"
 
 
 def _settings() -> Settings:
@@ -103,6 +112,52 @@ def sync(days: int = typer.Option(30, min=1, max=365)) -> None:
     settings = _settings()
     end_date = date.today()
     start_date = end_date - timedelta(days=days - 1)
+    try:
+        with exclusive_sync_lock(_SYNC_LOCK_PATH):
+            count = _sync_batch(settings, start_date, end_date)
+    except BackfillLockedError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except OSError as exc:
+        raise typer.BadParameter("Protected sync state is unavailable.") from exc
+    label = "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "private"
+    typer.echo(f"Synced {count} {label} observations.")
+
+
+@app.command("sync-range")
+def sync_range(
+    start_date: str = typer.Option(..., "--start-date"),
+    end_date: str = typer.Option(..., "--end-date"),
+    batch_days: int = typer.Option(7, min=1, max=90),
+    state_file: str = typer.Option(_BACKFILL_STATE_FILE, "--state-file"),
+) -> None:
+    """Resumably backfill a bounded date range without logging private observations."""
+    settings = _settings()
+    try:
+        parsed_start = date.fromisoformat(start_date)
+        parsed_end = date.fromisoformat(end_date)
+        with exclusive_sync_lock(_SYNC_LOCK_PATH):
+            progress = run_backfill(
+                start_date=parsed_start,
+                end_date=parsed_end,
+                batch_days=batch_days,
+                state_path=Path(state_file),
+                sync_batch=lambda batch_start, batch_end: _sync_batch(
+                    settings, batch_start, batch_end
+                ),
+            )
+    except (BackfillLockedError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except OSError as exc:
+        raise typer.BadParameter("Protected backfill state is unavailable.") from exc
+    label = "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "private"
+    message = (
+        f"Backfill complete: {progress.batches} batches, "
+        f"{progress.observations} {label} observations."
+    )
+    typer.echo(message)
+
+
+def _sync_batch(settings: Settings, start_date: date, end_date: date) -> int:
     import asyncio
 
     if settings.health_provider == "synthetic":
@@ -110,9 +165,7 @@ def sync(days: int = typer.Option(30, min=1, max=365)) -> None:
         points = asyncio.run(provider.fetch(start_date, end_date))
     else:
         points = asyncio.run(_google_sync(settings, start_date, end_date))
-    count = _repository(settings).upsert(points)
-    label = "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "private"
-    typer.echo(f"Synced {count} {label} observations.")
+    return _repository(settings).upsert(points)
 
 
 async def _google_sync(
@@ -172,6 +225,7 @@ def analytics_command(
             "SYNTHETIC DATA" if settings.health_provider == "synthetic" else "PRIVATE DATA"
         ),
         preferred_step_source=settings.preferred_step_source,
+        synthetic=settings.health_provider == "synthetic",
     )
     payload = service.metric(metric, start_date, end_date, granularity="summary")
     typer.echo(dumps(payload["summary"], indent=2))

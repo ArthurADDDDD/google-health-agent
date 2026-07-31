@@ -159,7 +159,8 @@ class GoogleHealthProvider(HealthProvider):
                 raw_points = payload.get("dataPoints", [])
                 if not isinstance(raw_points, list):
                     raise TypeError
-                points.extend(self._normalize(data_type, raw) for raw in raw_points)
+                for raw in raw_points:
+                    points.extend(self._normalize(data_type, raw))
                 page_token = payload.get("nextPageToken")
                 if page_token is not None and not isinstance(page_token, str):
                     raise TypeError
@@ -241,7 +242,7 @@ class GoogleHealthProvider(HealthProvider):
         return windows
 
     @staticmethod
-    def _normalize(data_type: str, raw: dict[str, Any]) -> HealthDataPoint:
+    def _normalize(data_type: str, raw: dict[str, Any]) -> list[HealthDataPoint]:
         field, _, value_field, unit = DATA_TYPES[data_type]
         body = raw[field]
         start_time, end_time, civil_date, offset = _observation_time(
@@ -270,25 +271,37 @@ class GoogleHealthProvider(HealthProvider):
                 f"{data_type}:{start_time.isoformat()}:{source_name}:{value}".encode()
             ).hexdigest()
         )
-        return HealthDataPoint(
-            external_id=external_id,
-            metric=DOMAIN_METRICS[data_type],
-            value=value,
-            unit=unit,
-            start_time=start_time,
-            end_time=end_time,
-            utc_offset_minutes=offset,
-            civil_date=civil_date,
-            source=DataSource(
-                platform=str(source_raw.get("platform", "GOOGLE_HEALTH")),
-                source=str(source_name),
-                recording_method=method,
-                device=device.get("displayName"),
-            ),
-            ingested_at=datetime.now(UTC),
-            synthetic=False,
-            tags={"provider_data_type": data_type},
+        source = DataSource(
+            platform=str(source_raw.get("platform", "GOOGLE_HEALTH")),
+            source=str(source_name),
+            recording_method=method,
+            device=device.get("displayName"),
         )
+        if data_type == "sleep":
+            return _normalize_sleep(
+                body=body,
+                external_id=str(external_id),
+                start_time=start_time,
+                end_time=end_time,
+                civil_date=civil_date,
+                offset=offset,
+                source=source,
+                sleep_minutes=value,
+            )
+        return [
+            _normalized_point(
+                external_id=str(external_id),
+                metric=DOMAIN_METRICS[data_type],
+                value=value,
+                unit=unit,
+                start_time=start_time,
+                end_time=end_time,
+                civil_date=civil_date,
+                offset=offset,
+                source=source,
+                tags={"provider_data_type": data_type},
+            )
+        ]
 
 
 def _observation_time(
@@ -303,9 +316,10 @@ def _observation_time(
         end = _parse_datetime(interval["endTime"])
         civil_key = "civilEndTime" if prefer_interval_end else "civilStartTime"
         offset_key = "endUtcOffset" if prefer_interval_end else "startUtcOffset"
-        fallback_date = end.date() if prefer_interval_end else start.date()
-        civil = _civil_date(interval.get(civil_key, {}).get("date")) or fallback_date
         offset = _duration_minutes(interval.get(offset_key, "0s"))
+        fallback_time = end if prefer_interval_end else start
+        fallback_date = (fallback_time + timedelta(minutes=offset)).date()
+        civil = _civil_date(interval.get(civil_key, {}).get("date")) or fallback_date
         return start, end, civil, offset
     if isinstance(sample, dict):
         physical = sample.get("physicalTime")
@@ -334,6 +348,179 @@ def _civil_date(value: dict[str, Any] | None) -> date | None:
 
 def _duration_minutes(value: str) -> int:
     return round(float(value.removesuffix("s")) / 60)
+
+
+def _normalized_point(
+    *,
+    external_id: str,
+    metric: str,
+    value: float,
+    unit: str,
+    start_time: datetime,
+    end_time: datetime,
+    civil_date: date,
+    offset: int,
+    source: DataSource,
+    tags: dict[str, str | int | float | bool],
+) -> HealthDataPoint:
+    return HealthDataPoint(
+        external_id=external_id,
+        metric=metric,
+        value=value,
+        unit=unit,
+        start_time=start_time,
+        end_time=end_time,
+        utc_offset_minutes=offset,
+        civil_date=civil_date,
+        source=source,
+        ingested_at=datetime.now(UTC),
+        synthetic=False,
+        tags=tags,
+    )
+
+
+def _normalize_sleep(
+    *,
+    body: dict[str, Any],
+    external_id: str,
+    start_time: datetime,
+    end_time: datetime,
+    civil_date: date,
+    offset: int,
+    source: DataSource,
+    sleep_minutes: float,
+) -> list[HealthDataPoint]:
+    summary = body.get("summary")
+    interval = body.get("interval")
+    if not isinstance(summary, dict) or not isinstance(interval, dict):
+        raise ValueError("sleep payload is malformed")
+
+    metadata = body.get("metadata")
+    tags: dict[str, str | int | float | bool] = {"provider_data_type": "sleep"}
+    sleep_type = body.get("type")
+    if isinstance(sleep_type, str):
+        tags["sleep_type"] = sleep_type
+    if isinstance(metadata, dict) and isinstance(metadata.get("stagesStatus"), str):
+        tags["stages_status"] = metadata["stagesStatus"]
+    for source_key, tag_key in (
+        ("minutesInSleepPeriod", "minutes_in_sleep_period"),
+        ("minutesToFallAsleep", "minutes_to_fall_asleep"),
+    ):
+        number = _optional_number(summary.get(source_key))
+        if number is not None:
+            tags[tag_key] = int(number) if number.is_integer() else number
+
+    values: dict[str, tuple[float, str]] = {
+        "sleep_minutes": (sleep_minutes, "min"),
+        "bedtime_minutes": (
+            _civil_minutes(
+                interval.get("civilStartTime"),
+                start_time,
+                interval.get("startUtcOffset", "0s"),
+            ),
+            "min_after_midnight",
+        ),
+        "wake_time_minutes": (
+            _civil_minutes(
+                interval.get("civilEndTime"),
+                end_time,
+                interval.get("endUtcOffset", "0s"),
+            ),
+            "min_after_midnight",
+        ),
+    }
+    stage_values = _sleep_stage_minutes(body)
+    awake_minutes = _optional_number(summary.get("minutesAwake"))
+    if awake_minutes is not None:
+        stage_values["awake_minutes"] = awake_minutes
+    values.update((metric, (minutes, "min")) for metric, minutes in stage_values.items())
+
+    points: list[HealthDataPoint] = []
+    for metric, (metric_value, unit) in values.items():
+        point_external_id = (
+            external_id
+            if metric == "sleep_minutes"
+            else "google-sleep:" + hashlib.sha256(f"{external_id}:{metric}".encode()).hexdigest()
+        )
+        points.append(
+            _normalized_point(
+                external_id=point_external_id,
+                metric=metric,
+                value=metric_value,
+                unit=unit,
+                start_time=start_time,
+                end_time=end_time,
+                civil_date=civil_date,
+                offset=offset,
+                source=source,
+                tags=tags,
+            )
+        )
+    return points
+
+
+def _sleep_stage_minutes(body: dict[str, Any]) -> dict[str, float]:
+    stage_metrics = {
+        "DEEP": "deep_sleep_minutes",
+        "REM": "rem_sleep_minutes",
+        "LIGHT": "light_sleep_minutes",
+        "AWAKE": "awake_minutes",
+    }
+    summary = body["summary"]
+    rows = summary.get("stagesSummary")
+    values: dict[str, float] = {}
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("sleep stage summary is malformed")
+            metric = stage_metrics.get(str(row.get("type", "")).upper())
+            minutes = _optional_number(row.get("minutes"))
+            if metric and minutes is not None:
+                values[metric] = values.get(metric, 0.0) + minutes
+        if values:
+            return values
+
+    stages = body.get("stages")
+    if not isinstance(stages, list):
+        return values
+    for stage in stages:
+        if not isinstance(stage, dict):
+            raise ValueError("sleep stage segment is malformed")
+        metric = stage_metrics.get(str(stage.get("type", "")).upper())
+        if not metric:
+            continue
+        start = _parse_datetime(stage["startTime"])
+        end = _parse_datetime(stage["endTime"])
+        minutes = (end - start).total_seconds() / 60
+        if minutes < 0:
+            raise ValueError("sleep stage segment has a negative duration")
+        values[metric] = values.get(metric, 0.0) + minutes
+    return values
+
+
+def _civil_minutes(
+    civil_time: Any,
+    physical_time: datetime,
+    utc_offset: Any,
+) -> float:
+    if isinstance(civil_time, dict):
+        time_value = civil_time.get("time")
+        if isinstance(time_value, dict):
+            return (
+                float(time_value.get("hours", 0)) * 60
+                + float(time_value.get("minutes", 0))
+                + float(time_value.get("seconds", 0)) / 60
+            )
+    if not isinstance(utc_offset, str):
+        raise ValueError("sleep interval UTC offset is malformed")
+    local_time = physical_time + timedelta(minutes=_duration_minutes(utc_offset))
+    return local_time.hour * 60 + local_time.minute + local_time.second / 60
+
+
+def _optional_number(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)
 
 
 def _metric_value(

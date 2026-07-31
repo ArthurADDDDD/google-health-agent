@@ -59,10 +59,12 @@ class HealthService:
         *,
         data_label: str = "SYNTHETIC DATA",
         preferred_step_source: str | None = None,
+        synthetic: bool = True,
     ) -> None:
         self.repository = repository
         self.data_label = data_label
         self.preferred_step_source = preferred_step_source
+        self.synthetic = synthetic
 
     @staticmethod
     def _window(days: int, end_date: date | None, maximum: int = 365) -> tuple[date, date]:
@@ -75,7 +77,7 @@ class HealthService:
         self, days: int, end_date: date | None, maximum: int = 365
     ) -> tuple[date, date, list[HealthDataPoint], list[DataQualityIssue]]:
         start, end = self._window(days, end_date, maximum)
-        raw = self.repository.query(start, end)
+        raw = self.repository.query(start, end, synthetic=self.synthetic)
         selected, overlap = preferred_points(raw, self.preferred_step_source)
         points = self._daily_points(selected)
         return start, end, points, assess_quality(raw, start, end) + overlap
@@ -187,7 +189,7 @@ class HealthService:
             raise InvalidDateRange("granularity must be 'daily' or 'summary'.")
         if days < 1 or days > 365:
             raise InvalidDateRange("Please request a smaller date range (maximum 365 days).")
-        raw = self.repository.query(start_date, end_date, metric)
+        raw = self.repository.query(start_date, end_date, metric, synthetic=self.synthetic)
         selected, issues = preferred_points(raw, self.preferred_step_source)
         points = self._daily_points(selected)
         result: dict[str, Any] = {
@@ -229,8 +231,12 @@ class HealthService:
             days = (end - start).days + 1
             if days < 1 or days > 365:
                 raise InvalidDateRange("Each comparison period must be 1-365 days.")
-        raw_a = self.repository.query(period_a_start, period_a_end, metric)
-        raw_b = self.repository.query(period_b_start, period_b_end, metric)
+        raw_a = self.repository.query(
+            period_a_start, period_a_end, metric, synthetic=self.synthetic
+        )
+        raw_b = self.repository.query(
+            period_b_start, period_b_end, metric, synthetic=self.synthetic
+        )
         selected_a, _ = preferred_points(raw_a, self.preferred_step_source)
         selected_b, _ = preferred_points(raw_b, self.preferred_step_source)
         values_a = [point.value for point in self._daily_points(selected_a)]

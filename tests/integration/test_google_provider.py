@@ -86,6 +86,7 @@ def _sleep_crossing_midnight() -> dict:
             "device": {"displayName": "Mock Watch"},
         },
         "sleep": {
+            "type": "STAGES",
             "interval": {
                 "startTime": "2026-01-01T15:30:00Z",
                 "startUtcOffset": "28800s",
@@ -100,7 +101,69 @@ def _sleep_crossing_midnight() -> dict:
                     "time": {"hours": 7},
                 },
             },
-            "summary": {"minutesAsleep": 420},
+            "metadata": {
+                "processed": True,
+                "stagesStatus": "SUCCEEDED",
+            },
+            "summary": {
+                "minutesInSleepPeriod": "480",
+                "minutesToFallAsleep": "12",
+                "minutesAsleep": "420",
+                "minutesAwake": "60",
+                "stagesSummary": [
+                    {"type": "AWAKE", "minutes": "60", "count": "8"},
+                    {"type": "LIGHT", "minutes": "240", "count": "12"},
+                    {"type": "DEEP", "minutes": "100", "count": "5"},
+                    {"type": "REM", "minutes": "80", "count": "4"},
+                ],
+            },
+        },
+    }
+
+
+def _sleep_with_physical_times_and_stage_segments() -> dict:
+    return {
+        "name": "users/me/dataTypes/sleep/dataPoints/mock-physical-only",
+        "dataSource": {
+            "recordingMethod": "DERIVED",
+            "platform": "FITBIT",
+            "device": {"displayName": "Mock Watch"},
+        },
+        "sleep": {
+            "type": "STAGES",
+            "interval": {
+                "startTime": "2026-01-01T15:30:00Z",
+                "startUtcOffset": "28800s",
+                "endTime": "2026-01-01T23:30:00Z",
+                "endUtcOffset": "28800s",
+            },
+            "stages": [
+                {
+                    "type": "LIGHT",
+                    "startTime": "2026-01-01T15:30:00Z",
+                    "endTime": "2026-01-01T19:30:00Z",
+                },
+                {
+                    "type": "DEEP",
+                    "startTime": "2026-01-01T19:30:00Z",
+                    "endTime": "2026-01-01T21:10:00Z",
+                },
+                {
+                    "type": "REM",
+                    "startTime": "2026-01-01T21:10:00Z",
+                    "endTime": "2026-01-01T22:30:00Z",
+                },
+                {
+                    "type": "AWAKE",
+                    "startTime": "2026-01-01T22:30:00Z",
+                    "endTime": "2026-01-01T23:30:00Z",
+                },
+            ],
+            "summary": {
+                "minutesInSleepPeriod": "480",
+                "minutesAsleep": "420",
+                "minutesAwake": "60",
+            },
         },
     }
 
@@ -180,11 +243,59 @@ async def test_sleep_is_attributed_to_local_wake_date_across_midnight() -> None:
             data_types=("sleep",),
         )
         points = await provider.fetch(date(2026, 1, 2), date(2026, 1, 2))
-    assert len(points) == 1
-    assert points[0].start_time == datetime(2026, 1, 1, 15, 30, tzinfo=UTC)
-    assert points[0].end_time == datetime(2026, 1, 1, 23, 0, tzinfo=UTC)
-    assert points[0].civil_date == date(2026, 1, 2)
-    assert points[0].utc_offset_minutes == 480
+    by_metric = {point.metric: point for point in points}
+    assert {metric: point.value for metric, point in by_metric.items()} == {
+        "sleep_minutes": 420,
+        "bedtime_minutes": 23 * 60 + 30,
+        "wake_time_minutes": 7 * 60,
+        "deep_sleep_minutes": 100,
+        "rem_sleep_minutes": 80,
+        "light_sleep_minutes": 240,
+        "awake_minutes": 60,
+    }
+    assert len({point.external_id for point in points}) == len(points)
+    assert all(point.start_time == datetime(2026, 1, 1, 15, 30, tzinfo=UTC) for point in points)
+    assert all(point.end_time == datetime(2026, 1, 1, 23, 0, tzinfo=UTC) for point in points)
+    assert all(point.civil_date == date(2026, 1, 2) for point in points)
+    assert all(point.utc_offset_minutes == 480 for point in points)
+    assert by_metric["sleep_minutes"].tags == {
+        "provider_data_type": "sleep",
+        "sleep_type": "STAGES",
+        "stages_status": "SUCCEEDED",
+        "minutes_in_sleep_period": 480,
+        "minutes_to_fall_asleep": 12,
+    }
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_sleep_uses_offsets_and_stage_segments_when_civil_summary_is_absent() -> None:
+    respx.get(SLEEP_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={"dataPoints": [_sleep_with_physical_times_and_stage_segments()]},
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        provider = GoogleHealthProvider(
+            MemoryTokenStore(_token()),
+            _oauth(client),
+            client,
+            data_types=("sleep",),
+        )
+        points = await provider.fetch(date(2026, 1, 2), date(2026, 1, 2))
+
+    by_metric = {point.metric: point for point in points}
+    assert {metric: point.value for metric, point in by_metric.items()} == {
+        "sleep_minutes": 420,
+        "bedtime_minutes": 23 * 60 + 30,
+        "wake_time_minutes": 7 * 60 + 30,
+        "deep_sleep_minutes": 100,
+        "rem_sleep_minutes": 80,
+        "light_sleep_minutes": 240,
+        "awake_minutes": 60,
+    }
+    assert all(point.civil_date == date(2026, 1, 2) for point in points)
 
 
 @pytest.mark.asyncio

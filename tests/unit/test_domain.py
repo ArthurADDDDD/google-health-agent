@@ -72,7 +72,7 @@ def test_production_mcp_requires_exact_allowlists_and_distinct_client_tokens() -
 
 
 def test_production_google_reports_must_not_use_console_mailer() -> None:
-    with pytest.raises(ConfigurationError, match="MAILER=smtp"):
+    with pytest.raises(ConfigurationError, match="MAILER=disabled or MAILER=smtp"):
         Settings(
             app_env="production",
             health_provider="google",
@@ -81,3 +81,12 @@ def test_production_google_reports_must_not_use_console_mailer() -> None:
             google_redirect_uri="https://health.example.test/oauth/callback",
             google_token_encryption_key="mock-encryption-key",
         )
+
+
+def test_production_google_reports_may_disable_delivery() -> None:
+    settings = Settings(
+        app_env="production",
+        health_provider="google",
+        mailer="disabled",
+    )
+    assert settings.mailer == "disabled"

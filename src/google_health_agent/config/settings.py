@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     google_client_secret: SecretStr | None = None
     google_redirect_uri: str | None = None
     google_token_encryption_key: SecretStr | None = None
-    mailer: Literal["console", "smtp"] = "console"
+    mailer: Literal["console", "disabled", "smtp"] = "console"
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
@@ -71,8 +71,8 @@ class Settings(BaseSettings):
             and self.mailer == "console"
         ):
             raise ConfigurationError(
-                "Production Google Health deployments require MAILER=smtp so private reports "
-                "are not printed to process output."
+                "Production Google Health deployments require MAILER=disabled or MAILER=smtp "
+                "so private reports are not printed to process output."
             )
         return self
 

@@ -74,7 +74,16 @@ def test_brief_dry_run_does_not_create_report(tmp_path, monkeypatch, capsys) -> 
 def test_cli_exposes_required_commands() -> None:
     result = CliRunner().invoke(app, ["--help"])
     assert result.exit_code == 0
-    for command in ("doctor", "demo", "serve", "sync", "status", "analytics", "brief"):
+    for command in (
+        "doctor",
+        "demo",
+        "serve",
+        "sync",
+        "sync-range",
+        "status",
+        "analytics",
+        "brief",
+    ):
         assert command in result.stdout
 
 
@@ -114,3 +123,26 @@ def test_doctor_and_status_are_component_complete_and_secret_safe(tmp_path, monk
         assert "SMTP credentials: configured" in result.stdout
         assert "Scheduler: external" in result.stdout
         assert all(secret not in result.stdout for secret in secrets.values())
+
+
+def test_sync_range_runs_in_small_idempotent_batches(tmp_path, monkeypatch) -> None:
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'backfill.sqlite'}")
+    monkeypatch.setattr(cli_module, "_settings", lambda: settings)
+    state_file = tmp_path / "state.json"
+    result = CliRunner().invoke(
+        app,
+        [
+            "sync-range",
+            "--start-date",
+            "2026-01-01",
+            "--end-date",
+            "2026-01-03",
+            "--batch-days",
+            "1",
+            "--state-file",
+            str(state_file),
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Backfill complete: 3 batches" in result.stdout
+    assert not state_file.exists()

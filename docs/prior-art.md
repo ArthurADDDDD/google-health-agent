@@ -14,6 +14,9 @@ not implementation reuse.
 - [Google Health Fitbit MCP](https://github.com/BerkKilicoglu/google-health-fitbit-mcp):
   acknowledgement that Google Health v4 is moving, read-only defaults, local token handling,
   and client examples.
+- [Google Health Worker MCP V1](https://github.com/Ring8688/google-health-worker-mcp-V1):
+  product-level flow for making Google Health v4 read-only tools available to Claude web,
+  desktop, and mobile through a Cloudflare-hosted remote MCP connector.
 
 ## Experience adopted
 
@@ -22,10 +25,14 @@ not implementation reuse.
 - OAuth/token handling outside tool results.
 - Repository boundaries, health probes, structured errors, and doctor commands.
 - Clear local-first/read-only/not-medical positioning.
+- The user-facing remote-connector flow: configure a protected remote MCP once, enable it per
+  Claude conversation, and let the assistant request bounded health summaries on demand.
 
 ## Deliberately not adopted
 
 - No copied code, schemas, prompts, or provider-specific business logic.
+- No Cloudflare Workers, Hono, KV token store, URL-embedded secret design, or deployment code
+  from Google Health Worker MCP V1.
 - No legacy Fitbit API, WHOOP private/reverse-engineered API, or password login.
 - No write tools, goal mutation, recommendations engine, chatbot, or intelligence backend.
 - No multi-tenant platform, dynamic provider marketplace, SDK bridge, dashboard, or A2A layer.
@@ -33,4 +40,3 @@ not implementation reuse.
 
 The governing design remains Google Health API v4, personal self-hosting, normalized factual
 data, read-only MCP, and interpretation by Claude Code or Codex.
-
