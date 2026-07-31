@@ -357,6 +357,10 @@ Back up the database and encrypted Google token:
 
 Store `GOOGLE_TOKEN_ENCRYPTION_KEY` separately. Never publish the database, tokens, `.env`, logs, screenshots, or backups.
 
+# Troubleshooting
+
+See [常见问题 / FAQ](docs/faq.md) (Chinese) for common issues and solutions.
+
 # Security
 
 - All MCP tools are read-only.
@@ -370,12 +374,7 @@ Store `GOOGLE_TOKEN_ENCRYPTION_KEY` separately. Never publish the database, toke
 
 This project was inspired by
 [Google Health Worker MCP V1](https://github.com/Ring8688/google-health-worker-mcp-V1).
-The idea of wrapping Google Health API v4 behind a read-only remote MCP connector for Claude
-originated there, and we gratefully acknowledge that contribution.
-
-The two projects take different implementation approaches: this backend runs on your own Linux
-server using Python/SQLite (optionally PostgreSQL), protected by Cloudflare Tunnel + Access OAuth,
-rather than deploying on Cloudflare Workers.
+We gratefully acknowledge that contribution.
 
 ## License
 
